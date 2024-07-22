@@ -35,7 +35,6 @@ class CFMTrainer:
         self.early_stopping = self.config.EPOCHS if self.config.EARLY_STOPPING is None else self.config.EARLY_STOPPING
         self.min_epochs = 0 if self.config.MIN_EPOCHS is None else self.config.MIN_EPOCHS
         self.print_epochs = 1 if self.config.PRINT_EPOCHS is None else self.config.PRINT_EPOCHS
-        self.fix_seed = self.config.FIX_SEED
 
         #...logger & tensorboard:
         os.makedirs(self.workdir/'tensorboard', exist_ok=True)
@@ -62,7 +61,7 @@ class CFMTrainer:
 
         for epoch in tqdm(range(self.epochs), desc="epochs"):
             train.update(model=self.model, loss_fn=self.dynamics.loss, dataloader=self.dataloader.train, optimizer=optimizer) 
-            valid.update(model=self.model, loss_fn=self.dynamics.loss, dataloader=self.dataloader.valid, seed=self.fix_seed)
+            valid.update(model=self.model, loss_fn=self.dynamics.loss, dataloader=self.dataloader.valid)
             TERMINATE, IMPROVED = valid.checkpoint(min_epochs=self.min_epochs, early_stopping=self.early_stopping)
             scheduler.step() 
             self._log_losses(train, valid, epoch)
