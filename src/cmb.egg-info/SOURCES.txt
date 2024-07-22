@@ -1,0 +1,6 @@
+README.md
+setup.py
+src/cmb.egg-info/PKG-INFO
+src/cmb.egg-info/SOURCES.txt
+src/cmb.egg-info/dependency_links.txt
+src/cmb.egg-info/top_level.txt
