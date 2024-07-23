@@ -37,6 +37,5 @@ class CIFARDataClass:
         test_targets = np.array(cifar_test.targets)
         self.context = np.concatenate((train_targets, test_targets), axis=0)
         self.context = torch.tensor(self.context)
-
         self.mask = torch.ones_like(self.target)
 

@@ -6,14 +6,15 @@ class ConditionalFlowMatching:
 	''' Conditional Flow Matching base class
 	'''
 	def __init__(self, config: dataclass):
-		self.sigma_min = config.SIGMA
-		self.coupling = config.DYNAMICS
+		self.config = config
 
 	def define_source_target_coupling(self, batch):
 		""" conditional variable z = (x_0, x1) ~ pi(x_0, x_1)
 		"""		
 		self.x0 = batch.source
 		self.x1 = batch.target
+		self.context = batch.context if self.config.DIM_CONTEXT > 0 else None
+		self.mask = batch.mask	
 
 	def sample_time(self):
 		""" sample time: t ~ U[0,1]
@@ -25,7 +26,7 @@ class ConditionalFlowMatching:
 		""" sample conditional path: x_t ~ p_t(x|x_0, x_1)
 		"""
 		mean = self.t * self.x1 + (1 - self.t) * self.x0
-		std = self.sigma_min
+		std = self.config.SIGMA
 		self.path = mean + std * torch.randn_like(mean)
 
 	def conditional_vector_fields(self):
@@ -40,7 +41,7 @@ class ConditionalFlowMatching:
 		self.sample_time() 
 		self.sample_gaussian_conditional_path()
 		self.conditional_vector_fields()
-		vt = model(x=self.path, t=self.t, mask=None)
+		vt = model(x=self.path, t=self.t, context=self.context, mask=self.mask)
 		ut = self.drift.to(vt.device)
 		loss = torch.square(vt - ut)
 		return torch.mean(loss)
@@ -53,17 +54,17 @@ class ConditionalFlowMatching:
 class OptimalTransportCFM(ConditionalFlowMatching):
 	def define_source_target_coupling(self, batch):
 		OT = OTPlanSampler()	
-		self.x0, self.x1 = OT.sample_plan(batch['source'], batch['target'])
+		self.x0, self.x1 = OT.sample_plan(batch.source, batch.target)
 
 class SchrodingerBridgeCFM(ConditionalFlowMatching):
 	def define_source_target_coupling(self, batch):
-		regulator = 2 * self.sigma_min**2
+		regulator = 2 * self.config.SIGMA**2
 		SB = OTPlanSampler(reg=regulator)
-		self.x0, self.x1 = SB.sample_plan(batch['source'], batch['target'])	
+		self.x0, self.x1 = SB.sample_plan(batch.source, batch.target)	
 		
 	def sample_gaussian_conditional_path(self):
 		self.mean = self.t * self.x1 + (1 - self.t) * self.x0
-		std = self.sigma_min * torch.sqrt(self.t * (1 - self.t))
+		std = self.config.SIGMA * torch.sqrt(self.t * (1 - self.t))
 		self.path = self.mean + std * torch.randn_like(self.mean)
 		
 	def conditional_vector_fields(self):

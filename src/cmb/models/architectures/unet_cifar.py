@@ -850,7 +850,6 @@ class EncoderUNetModel(nn.Module):
             return self.out(h)
 
 
-NUM_CLASSES = 1000
 
 class UNet32x32(nn.Module):
     def __init__(self, config):
@@ -865,8 +864,7 @@ class UNet32x32(nn.Module):
         attention_resolutions=config.ATTENTION_RESOLUTIONS
         dropout=config.DROPOUT
         learn_sigma=False
-        class_cond=False
-        num_classes=NUM_CLASSES
+        num_classes=config.DIM_CONTEXT
         use_checkpoint=False
         num_heads_upsample=-1
         use_scale_shift_norm=False
@@ -906,7 +904,7 @@ class UNet32x32(nn.Module):
                                 attention_resolutions=tuple(attention_ds),
                                 dropout=dropout,
                                 channel_mult=channel_mult,
-                                num_classes=(num_classes if class_cond else None),
+                                num_classes=num_classes if num_classes > 0 else None,
                                 use_checkpoint=use_checkpoint,
                                 use_fp16=use_fp16,
                                 num_heads=num_heads,

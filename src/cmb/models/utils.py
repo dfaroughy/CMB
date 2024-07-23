@@ -202,14 +202,16 @@ class Logger:
 class TorchdynWrapper(torch.nn.Module):
     """ Wraps model to torchdyn compatible format.
     """
-    def __init__(self, net, mask=None):
+    def __init__(self, net, context=None, mask=None):
         super().__init__()
         self.nn = net
+        self.context = context
         self.mask = mask
+
     def forward(self, t, x):
         t = t.repeat(x.shape[0])
         t = reshape_time_like(t, x)
-        return self.nn(t=t, x=x, mask=self.mask)
+        return self.nn(t=t, x=x, context=self.context, mask=self.mask)
 
 def reshape_time_like(t, x):
 	if isinstance(t, (float, int)): return t

@@ -40,11 +40,13 @@ class CFMPipeline:
         self.batch_size = config.BATCH_SIZE if batch_size is None else batch_size  
 
     @torch.no_grad()
-    def generate_samples(self, input_source):
+    def generate_samples(self, input_source, context=None):
         self.source = self._preprocess(input_source)
+        self.context = context.to(self.device) if context is not None else None
         self.trajectories = self._postprocess(self._ODEsolver())  
 
     def _preprocess(self, samples):
+        samples = samples.to(self.device)
         if self.preprocessor is not None:
             self.stats = self.trained_model.dataloader.datasets.summary_stats
             samples = self.preprocessor(samples, methods=self.trained_model.dataloader.datasets.preprocess_methods, summary_stats=self.stats)
@@ -70,16 +72,15 @@ class CFMPipeline:
         if self.solver == 'dopri5':
             assert self.atol is not None and self.rtol is not None, 'atol and rtol must be specified for the chosen solver'
 
-        node = NeuralODE(vector_field=TorchdynWrapper(self.model), 
+        drift = TorchdynWrapper(self.model, context=self.context if self.context is not None else None)
+
+        node = NeuralODE(vector_field=drift, 
                         solver=self.solver, 
                         sensitivity=self.sensitivity, 
                         seminorm=True if self.solver=='dopri5' else False,
                         atol=self.atol if self.solver=='dopri5' else None, 
                         rtol=self.rtol if self.solver=='dopri5' else None)
         
-        num_batches = self.source.shape[0] // self.batch_size
-        if self.source.shape[0] % self.batch_size != 0: num_batches += 1
-        trajectories = []
-        for i in tqdm(range(num_batches)):
-            trajectories.append(node.trajectory(x=self.source[i*self.batch_size:(i+1)*self.batch_size].to(self.device), t_span=self.time_steps).detach().cpu())
-        return torch.cat(trajectories, dim=1)
+        trajectories = node.trajectory(x=self.source, t_span=self.time_steps).detach().cpu()
+
+        return trajectories
