@@ -55,13 +55,17 @@ class OptimalTransportCFM(ConditionalFlowMatching):
 	def define_source_target_coupling(self, batch):
 		OT = OTPlanSampler()	
 		self.x0, self.x1 = OT.sample_plan(batch.source, batch.target)
+		self.context = batch.context if self.config.DIM_CONTEXT > 0 else None
+		self.mask = batch.mask	
 
 class SchrodingerBridgeCFM(ConditionalFlowMatching):
 	def define_source_target_coupling(self, batch):
 		regulator = 2 * self.config.SIGMA**2
 		SB = OTPlanSampler(reg=regulator)
 		self.x0, self.x1 = SB.sample_plan(batch.source, batch.target)	
-		
+		self.context = batch.context if self.config.DIM_CONTEXT > 0 else None
+		self.mask = batch.mask	
+
 	def sample_gaussian_conditional_path(self):
 		self.mean = self.t * self.x1 + (1 - self.t) * self.x0
 		std = self.config.SIGMA * torch.sqrt(self.t * (1 - self.t))
