@@ -1,86 +1,54 @@
 
 import torch
-from torchdyn.core import NeuralODE
-from tqdm.auto import tqdm
 from dataclasses import dataclass
-
-from cmb.models.utils import TorchdynWrapper
+from torchdyn.core import NeuralODE
+from cmb.models.utils import EulerSolver, ContextWrapper
 
 class CFMPipeline:
     
     def __init__(self, 
                  trained_model, 
-                 preprocessor: object=None,
-                 postprocessor: object=None,
                  config: dataclass=None,
-                 solver: str=None,
-                 num_sampling_steps: int=None,
-                 sensitivity: str=None,
-                 atol: float=None,
-                 rtol: float=None,
-                 reverse_time_flow: bool=False,
                  best_epoch_model: bool=False,
-                 batch_size: int=None
                  ):
-        
-        self.trained_model = trained_model
-        self.preprocessor = preprocessor
-        self.postprocessor = postprocessor
-        self.model = self.trained_model.best_epoch_model if best_epoch_model else self.trained_model.last_epoch_model
 
-        self.t0 = config.T1 if reverse_time_flow else config.T0
-        self.t1 = config.T0 if reverse_time_flow else config.T1
-        self.solver = config.SOLVER if solver is None else solver
-        self.num_sampling_steps = config.NUM_SAMPLING_STEPS if num_sampling_steps is None else num_sampling_steps
-        self.sensitivity = config.SENSITIVITY if sensitivity is None else sensitivity
-        self.atol = config.ATOL if atol is None else atol
-        self.rtol = config.RTOL if rtol is None else rtol
+        self.config = config
+        self.trained_model = trained_model
+        self.model = self.trained_model.best_epoch_model if best_epoch_model else self.trained_model.last_epoch_model
+        self.num_sampling_steps = config.NUM_SAMPLING_STEPS
+        self.sampler = config.SAMPLER
         self.device = config.DEVICE
-        self.time_steps = torch.linspace(self.t0, self.t1, self.num_sampling_steps, device=self.device)
-        self.batch_size = config.BATCH_SIZE if batch_size is None else batch_size  
+        self.has_context = True if config.DIM_CONTEXT > 0 else False
+        self.time_steps = torch.linspace(0.0, 1.0, config.NUM_SAMPLING_STEPS, device=self.device)
 
     @torch.no_grad()
     def generate_samples(self, input_source, context=None):
-        self.source = self._preprocess(input_source)
-        self.context = context.to(self.device) if context is not None else None
-        self.trajectories = self._postprocess(self._ODEsolver())  
+        self.source = input_source.to(self.device)
+        self.context = context.to(self.device) if self.has_context else None
+        self.trajectories = self.ODEsolver() 
 
-    def _preprocess(self, samples):
-        samples = samples.to(self.device)
-        if self.preprocessor is not None:
-            self.stats = self.trained_model.dataloader.datasets.summary_stats
-            samples = self.preprocessor(samples, methods=self.trained_model.dataloader.datasets.preprocess_methods, summary_stats=self.stats)
-            samples.preprocess()
-            return samples.features
-        else:
-            return samples
-
-    def _postprocess(self, samples):
-        if self.postprocessor is not None:
-            self.stats = self.trained_model.dataloader.datasets.summary_stats
-            self.postprocess_methods = ['inverse_' + method for method in self.trained_model.dataloader.datasets.preprocess_methods[::-1]]
-            samples = self.postprocessor(samples, methods=self.postprocess_methods, summary_stats=self.stats)
-            samples.postprocess()
-            return samples.features
-        else:
-            return samples
 
     @torch.no_grad()
-    def _ODEsolver(self):
-        print('INFO: neural ODE solver with {} method and steps={}'.format(self.solver, self.num_sampling_steps))
+    def ODEsolver(self):
 
-        if self.solver == 'dopri5':
-            assert self.atol is not None and self.rtol is not None, 'atol and rtol must be specified for the chosen solver'
+        print('INFO: {} with {} method and steps={}'.format(self.sampler, self.config.SOLVER, self.config.NUM_SAMPLING_STEPS))
 
-        drift = TorchdynWrapper(self.model, context=self.context if self.context is not None else None)
+        drift = ContextWrapper(self.model, context=self.context if self.context is not None else None)
 
-        node = NeuralODE(vector_field=drift, 
-                        solver=self.solver, 
-                        sensitivity=self.sensitivity, 
-                        seminorm=True if self.solver=='dopri5' else False,
-                        atol=self.atol if self.solver=='dopri5' else None, 
-                        rtol=self.rtol if self.solver=='dopri5' else None)
+        if self.sampler == 'EulerSolver':
+            node = EulerSolver(vector_field=drift, device=self.device)
+        
+        elif self.sampler == 'NeuralODE':
+            node = NeuralODE(vector_field=drift, 
+                             solver=self.config.SOLVER, 
+                             sensitivity=self.config.SENSITIVITY, 
+                             seminorm=True if self.config.SOLVER=='dopri5' else False,
+                             atol=self.config.ATOL if self.solver=='dopri5' else None, 
+                             rtol=self.config.RTOL if self.solver=='dopri5' else None)        
+        else:
+            raise ValueError('Invalid sampler method.')
         
         trajectories = node.trajectory(x=self.source, t_span=self.time_steps).detach().cpu()
 
         return trajectories
+    

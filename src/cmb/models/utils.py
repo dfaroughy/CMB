@@ -199,20 +199,38 @@ class Logger:
 # utils for pipelines            
 #----------------------------------------------
 
-class TorchdynWrapper(torch.nn.Module):
+class EulerSolver:
+    def __init__(self, vector_field, device):
+        self.vector_field = vector_field
+        self.device = device
+
+    def trajectory(self, x, t_span):
+        time_steps = len(t_span)
+        dt = (t_span[-1] - t_span[0]) / (time_steps - 1)
+        trajectory = [x]
+
+        for i in range(1, time_steps):
+            t = t_span[i-1]
+            x = x + dt * self.vector_field(t, x).to(self.device)
+            trajectory.append(x)
+
+        return torch.stack(trajectory)
+
+
+class ContextWrapper(torch.nn.Module):
     """ Wraps model to torchdyn compatible format.
     """
-    def __init__(self, net, context=None, mask=None):
+    def __init__(self, net, context=None):
         super().__init__()
         self.nn = net
         self.context = context
-        self.mask = mask
 
     def forward(self, t, x):
         t = t.repeat(x.shape[0])
-        t = reshape_time_like(t, x)
-        return self.nn(t=t, x=x, context=self.context, mask=self.mask)
+        t = self.reshape_time_like(t, x)
+        return self.nn(t=t, x=x, context=self.context)
 
-def reshape_time_like(t, x):
-	if isinstance(t, (float, int)): return t
-	else: return t.reshape(-1, *([1] * (x.dim() - 1)))
+    def reshape_time_like(self, t, x):
+        if isinstance(t, (float, int)): return t
+        else: return t.reshape(-1, *([1] * (x.dim() - 1)))
+

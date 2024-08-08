@@ -10,22 +10,25 @@ class AbstractDataClass:
         source: torch.Tensor = None
         target: torch.Tensor = None
         context: torch.Tensor = None
+        labels: torch.Tensor = None
         mask: torch.Tensor = None
 
     def get_target(self): pass
     def get_source(self): pass
     def get_context(self): pass
+    def get_labels(self): pass
     def get_mask(self): pass
 
 class DefineDataSet(Dataset):
     def __init__(self, data: AbstractDataClass):
         self.data = data
-        self.databatch = namedtuple('databatch', ['source', 'target', 'context', 'mask'])
+        self.databatch = namedtuple('databatch', ['source', 'target', 'context', 'labels', 'mask'])
 
     def __getitem__(self, idx):
         return self.databatch(source=self.data.source[idx],
                               target=self.data.target[idx],
                               context=self.data.context[idx],
+                              labels=self.data.labels[idx],
                               mask=self.data.mask[idx])
     def __len__(self):
         return len(self.data.target)
