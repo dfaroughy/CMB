@@ -14,7 +14,7 @@ from copy import deepcopy
 from cmb.data.utils import AbstractDataClass, DefineDataloader
 from cmb.models.utils import Train_Step, Validation_Step, Optimizer, Scheduler, Logger
 
-class CFMTrainer:
+class CMBTrainer:
     """
     Trainer for dynamic generative models. e.g. CFM
     

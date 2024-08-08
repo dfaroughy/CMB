@@ -27,6 +27,19 @@ class StateClassifier_Config(Training_Config):
     DROPOUT : float = 0.0
     ACTIVATION : str = 'ReLU'
 
+
+@dataclass
+class MixedMLP_Config(Training_Config):
+    MODEL : str = 'MLP'
+    DIM_HIDDEN : int = 128  
+    TIME_EMBEDDING_TYPE : str = 'sinusoidal'
+    DIM_EMB_TIME : int = 16
+    DIM_EMB_STATE : int = 16
+    DIM_EMB_CONTINUOUS : int = 16
+    NUM_LAYERS : int = 4
+    DROPOUT : float = 0.0
+    ACTIVATION : str = 'ReLU'
+
 @dataclass
 class Unet28x28_Config(Training_Config):
     MODEL : str = 'Unet28x28'

@@ -199,6 +199,24 @@ class Logger:
 # utils for pipelines            
 #----------------------------------------------
 
+class ContextWrapper(torch.nn.Module):
+    """ Wraps model to torchdyn compatible format.
+    """
+    def __init__(self, net, context=None):
+        super().__init__()
+        self.nn = net
+        self.context = context
+
+    def forward(self, t, x):
+        t = t.repeat(x.shape[0])
+        t = self.reshape_time_like(t, x)
+        return self.nn(t=t, x=x, context=self.context)
+
+    def reshape_time_like(self, t, x):
+        if isinstance(t, (float, int)): return t
+        else: return t.reshape(-1, *([1] * (x.dim() - 1)))
+
+
 class EulerSolver:
     def __init__(self, vector_field, device):
         self.vector_field = vector_field
@@ -217,20 +235,54 @@ class EulerSolver:
         return torch.stack(trajectory)
 
 
-class ContextWrapper(torch.nn.Module):
-    """ Wraps model to torchdyn compatible format.
-    """
-    def __init__(self, net, context=None):
+
+import torch
+from dataclasses import dataclass
+from torch.nn.functional import softmax
+
+class TransitionRateModel(torch.nn.Module):
+    def __init__(self, model, config):
         super().__init__()
-        self.nn = net
-        self.context = context
+        self.model = model # model should output logits
+        self.vocab_size = config.VOCAB_SIZE
+        self.config = config
+        self.gamma = config.GAMMA
+        self.time_epsilon = config.TIME_EPS
 
-    def forward(self, t, x):
-        t = t.repeat(x.shape[0])
-        t = self.reshape_time_like(t, x)
-        return self.nn(t=t, x=x, context=self.context)
+    def forward(self, t, s, context=None):
+        t = t.squeeze()
+        if len(s.shape) != 2:
+            s = s.reshape(s.size(0),-1)
+        logits = self.model(t, s, context)
+        t1 = 1. - self.time_epsilon
+        beta_integral = (t1 - t) * self.gamma
+        wt = torch.exp(-self.vocab_size * beta_integral)
+        A, B, C = 1. , (wt * self.vocab_size)/(1. - wt) , wt
+        qx = softmax(logits, dim=2)
+        qy = torch.gather(qx, 2, s.long().unsqueeze(2))
+        rate = A + B[:, None, None] * qx + C[:, None, None] * qy
+        return rate
 
-    def reshape_time_like(self, t, x):
-        if isinstance(t, (float, int)): return t
-        else: return t.reshape(-1, *([1] * (x.dim() - 1)))
+class TauLeapingSolver:
+    def __init__(self, transition_rate, device):
+        self.transition_rate = transition_rate
+        self.device = device
 
+    def simulate(self, x, t_span):
+        time_steps = len(t_span)
+        tau = (t_span[-1] - t_span[0]) / (time_steps - 1)
+        trajectory = [x]
+
+        for i in range(1, time_steps):
+            t = t_span[i-1]
+    
+            current_state = x.clone()
+            rates = self.transition_rate(t, current_state).to(self.device)
+            voc_size = rates.size(-1) 
+
+            jumps = torch.poisson(rates * tau).to(self.device)  
+            net_jumps = torch.argmax(jumps, dim=-1).type_as(current_state)
+            x = torch.clamp(net_jumps, min=0, max=voc_size-1)            
+            trajectory.append(x.clone())
+
+        return torch.stack(trajectory)
