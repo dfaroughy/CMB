@@ -13,14 +13,14 @@ from cmb.models.architectures.utils import (fc_block,
 #...Multi-Layer Perceptron architecture:
 
 class MLP(nn.Module):
-    def __init__(self, configs):
+    def __init__(self, config):
         super().__init__()
         self.device = config.DEVICE
-        self.define_deep_models(configs)
+        self.define_deep_models(config)
         self.init_weights()
         self.to(self.device)
 
-    def define_deep_models(self, configs):
+    def define_deep_models(self, config):
         self.dim_input = config.DIM_INPUT
         self.dim_output = config.DIM_INPUT
         self.dim_hidden = config.DIM_HIDDEN
@@ -39,7 +39,7 @@ class MLP(nn.Module):
                                dropout=self.dropout, 
                                use_batch_norm=True)
 
-    def forward(self, t, x, context=None):
+    def forward(self, t, x, s=None, context=None):
         x = x.to(self.device)
         t = t.to(self.device)
         context = context.to(self.device) if context is not None else None
@@ -47,66 +47,14 @@ class MLP(nn.Module):
         if self.time_embedding == 'sinusoidal': t_emb = sinusoidal_timestep_embedding(t, self.dim_time_emb, max_period=10000)
         elif self.time_embedding == 'gaussian': t_emb = GaussianFourierProjection(self.dim_time_emb, device=x.device)(t)
         else: t_emb = transformer_timestep_embedding(t.squeeze(1), embedding_dim=self.dim_time_emb) if t is not None else t
-        x = torch.concat([x, context, t_emb.squeeze()], dim=1) if context is not None else torch.concat([x, t_emb.squeeze()], dim=1) 
-        return self.layers(x)
+        h = torch.concat([x, context, t_emb.squeeze()], dim=1) if context is not None else torch.concat([x, t_emb.squeeze()], dim=1) 
+        return self.layers(h)
 
     def init_weights(self):
         for layer in self.layers:
             if isinstance(layer, nn.Linear):
                 nn.init.xavier_uniform_(layer.weight)
     
-
-class StateClassifier(nn.Module):
-    def __init__(self, config):
-        super().__init__()
-        self.device = config.DEVICE
-        self.define_deep_models(config)
-        self.init_weights()
-        self.to(self.device)
-
-    def define_deep_models(self, config):
-        self.dim_input = config.DIM_INPUT
-        self.vocab_size = config.VOCAB_SIZE
-        self.dim_output = config.DIM_INPUT * config.VOCAB_SIZE
-        self.dim_hidden = config.DIM_HIDDEN
-        self.dim_context = config.DIM_CONTEXT        
-        self.dim_time_emb = config.DIM_TIME_EMB if config.DIM_TIME_EMB is not None else 1
-        self.dim_state_emb = config.DIM_STATE_EMB
-        self.num_layers = config.NUM_LAYERS
-        self.dropout = config.DROPOUT
-        self.act_fn = get_activation_function(config.ACTIVATION)
-
-        self.time_embedding = config.TIME_EMBEDDING_TYPE 
-        self.layers = fc_block(dim_input=self.dim_input + self.dim_context + self.dim_time_emb, 
-                               dim_output=self.dim_output, 
-                               dim_hidden=self.dim_hidden, 
-                               num_layers=self.num_layers, 
-                               activation=self.act_fn, 
-                               dropout=self.dropout, 
-                               use_batch_norm=True)
-
-    def forward(self, t, s, context=None):
-        s = s.to(self.device)
-        t = t.to(self.device)
-        context = context.to(self.device) if context is not None else None
-        batch_size = s.size(0)
-
-        if self.time_embedding == 'sinusoidal': t = sinusoidal_timestep_embedding(t, self.dim_time_emb, max_period=10000)
-        elif self.time_embedding == 'gaussian': t = GaussianFourierProjection(self.dim_time_emb, device=x.device)(t)
-        else: t = transformer_timestep_embedding(t.squeeze(1), embedding_dim=self.dim_time_emb) 
-        
-        x = torch.concat([s, context, t.squeeze(1)], dim=1) if context is not None else torch.concat([s, t.squeeze(1)], dim=1) 
-        x = self.layers(x)
-        rate_logits = x.reshape(batch_size, self.dim_input, self.vocab_size)
-
-        return rate_logits
-
-    def init_weights(self):
-        for layer in self.layers:
-            if isinstance(layer, nn.Linear):
-                nn.init.xavier_uniform_(layer.weight)
-
-
 class MixedMLP(nn.Module):
     def __init__(self, config):
         super().__init__()

@@ -28,7 +28,6 @@ class StateClassifier(nn.Module):
         self.act_fn = get_activation_function(configs.ACTIVATION)
 
         self.time_embedding = configs.TIME_EMBEDDING_TYPE 
-        # self.state_embedding = nn.Embedding(self.vocab_size, self.dim_state_emb)
 
         self.layers = fc_block(dim_input=self.dim_input + self.dim_context + self.dim_time_emb, 
                                dim_output=self.dim_output, 
@@ -38,7 +37,7 @@ class StateClassifier(nn.Module):
                                dropout=self.dropout, 
                                use_batch_norm=True)
 
-    def forward(self, t, s, context=None):
+    def forward(self, t, s, x=None, context=None):
         s = s.to(self.device)
         t = t.to(self.device)
         context = context.to(self.device) if context is not None else None
@@ -48,10 +47,9 @@ class StateClassifier(nn.Module):
         elif self.time_embedding == 'gaussian': t = GaussianFourierProjection(self.dim_time_emb, device=x.device)(t)
         else: t = transformer_timestep_embedding(t.squeeze(1), embedding_dim=self.dim_time_emb) 
         
-        # x = self.state_embedding(s)
-        x = torch.concat([s, context, t.squeeze(1)], dim=1) if context is not None else torch.concat([s, t.squeeze(1)], dim=1) 
-        x = self.layers(x)
-        rate_logits = x.reshape(batch_size, self.dim_input, self.vocab_size)
+        h = torch.concat([s, context, t.squeeze(1)], dim=1) if context is not None else torch.concat([s, t.squeeze(1)], dim=1) 
+        h = self.layers(h)
+        rate_logits = h.reshape(batch_size, self.dim_input, self.vocab_size)
 
         return rate_logits
 

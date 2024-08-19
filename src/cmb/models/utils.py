@@ -199,6 +199,26 @@ class Logger:
 # utils for pipelines            
 #----------------------------------------------
 
+from torch.nn.functional import softmax
+
+# class ContextWrapper(torch.nn.Module):
+#     """ Wraps model to torchdyn compatible format.
+#     """
+#     def __init__(self, net, context=None):
+#         super().__init__()
+#         self.nn = net
+#         self.context = context
+
+#     def forward(self, t, x):
+#         t = t.repeat(x.shape[0])
+#         t = self.reshape_time_like(t, x)
+#         return self.nn(t=t, x=x, context=self.context)
+
+#     def reshape_time_like(self, t, x):
+#         if isinstance(t, (float, int)): return t
+#         else: return t.reshape(-1, *([1] * (x.dim() - 1)))
+
+
 class ContextWrapper(torch.nn.Module):
     """ Wraps model to torchdyn compatible format.
     """
@@ -207,10 +227,14 @@ class ContextWrapper(torch.nn.Module):
         self.nn = net
         self.context = context
 
-    def forward(self, t, x):
-        t = t.repeat(x.shape[0])
-        t = self.reshape_time_like(t, x)
-        return self.nn(t=t, x=x, context=self.context)
+    def forward(self, t, x, s):
+        if x is not None: 
+            t = t.repeat(x.shape[0])
+            t = self.reshape_time_like(t, x)
+        else: 
+            t = t.repeat(s.shape[0])
+            t = self.reshape_time_like(t, s)
+        return self.nn(t=t, x=x, s=s, context=self.context)
 
     def reshape_time_like(self, t, x):
         if isinstance(t, (float, int)): return t
@@ -229,16 +253,41 @@ class EulerSolver:
 
         for i in range(1, time_steps):
             t = t_span[i-1]
-            x = x + dt * self.vector_field(t, x).to(self.device)
+            x = x + dt * self.vector_field(t, x=x, s=None).to(self.device)
             trajectory.append(x)
 
         return torch.stack(trajectory)
 
 
+class TauLeapingSolver:
+    def __init__(self, transition_rate, config):
+        self.transition_rate = transition_rate
+        self.device = config.DEVICE
+        self.dim = config.DIM_INPUT
+        self.vocab_size = config.VOCAB_SIZE 
 
-import torch
-from dataclasses import dataclass
-from torch.nn.functional import softmax
+    def simulate(self, s, t_span):
+        time_steps = len(t_span)
+        tau = (t_span[-1] - t_span[0]) / (time_steps - 1)
+        trajectory = [s]
+
+        for i in range(1, time_steps):
+            t = t_span[i-1]
+    
+            current_state = s.clone()
+            rates = self.transition_rate(t, s=current_state, x=None).to(self.device)
+            max_rate = torch.max(rates, dim=2)[1]
+
+            jumps = torch.poisson(rates * tau).to(self.device) 
+            mask =  torch.sum(jumps, dim=-1).type_as(current_state) <= 1
+            diff = torch.arange(self.vocab_size, device=self.device).view(1, 1, self.vocab_size) - x[:,:, None]
+            net_jumps = torch.sum(jumps * diff, dim=-1).type_as(current_state)
+            
+            s = current_state + net_jumps * mask
+            s = torch.clamp(s, min=0, max=self.vocab_size-1)            
+            trajectory.append(s.clone())
+
+        return torch.stack(trajectory), max_rate
 
 class TransitionRateModel(torch.nn.Module):
     def __init__(self, model, config):
@@ -253,7 +302,7 @@ class TransitionRateModel(torch.nn.Module):
         t = t.squeeze()
         if len(s.shape) != 2:
             s = s.reshape(s.size(0),-1)
-        logits = self.model(t, s, context)
+        logits = self.model(t, s=s, x=None, context=context)
         t1 = 1. - self.time_epsilon
         beta_integral = (t1 - t) * self.gamma
         wt = torch.exp(-self.vocab_size * beta_integral)
@@ -263,26 +312,3 @@ class TransitionRateModel(torch.nn.Module):
         rate = A + B[:, None, None] * qx + C[:, None, None] * qy
         return rate
 
-class TauLeapingSolver:
-    def __init__(self, transition_rate, device):
-        self.transition_rate = transition_rate
-        self.device = device
-
-    def simulate(self, x, t_span):
-        time_steps = len(t_span)
-        tau = (t_span[-1] - t_span[0]) / (time_steps - 1)
-        trajectory = [x]
-
-        for i in range(1, time_steps):
-            t = t_span[i-1]
-    
-            current_state = x.clone()
-            rates = self.transition_rate(t, current_state).to(self.device)
-            voc_size = rates.size(-1) 
-
-            jumps = torch.poisson(rates * tau).to(self.device)  
-            net_jumps = torch.argmax(jumps, dim=-1).type_as(current_state)
-            x = torch.clamp(net_jumps, min=0, max=voc_size-1)            
-            trajectory.append(x.clone())
-
-        return torch.stack(trajectory)

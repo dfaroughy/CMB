@@ -2,7 +2,7 @@
 import torch
 from dataclasses import dataclass
 from torchdyn.core import NeuralODE
-from cmb.models.utils import EulerSolver, ContextWrapper
+from cmb.models.utils import EulerSolver, TauLeapingSolver, TransitionRateModel, ContextWrapper
 
 class CFMPipeline:
     
@@ -52,11 +52,10 @@ class CFMPipeline:
     
 
 class CJBPipeline:
-    
     def __init__(self, 
                  trained_model, 
                  config: dataclass=None,
-                 best_epoch_model: bool=True,
+                 best_epoch_model: bool=True
                  ):
 
         self.config = config
@@ -72,11 +71,13 @@ class CJBPipeline:
     def generate_samples(self, input_source, context=None):
         self.source = input_source.to(self.device) 
         self.context = context.to(self.device) if self.has_context else None
-        self.jumps = self.MarkovSolver() 
-
+        jumps, x1 = self.MarkovSolver() 
+        self.jumps = jumps.detach().cpu()
+        self.x1 = x1.detach().cpu()
+        
     @torch.no_grad()
     def MarkovSolver(self):
         rate = TransitionRateModel(self.model, self.config)
         rate = ContextWrapper(rate, context=self.context if self.context is not None else None)
-        tauleap = TauLeapingSolver(transition_rate=rate, device=self.device)        
-        return tauleap.simulate(x=self.source, t_span=self.time_steps).detach().cpu()
+        tau_leaping = TauLeapingSolver(transition_rate=rate, config=self.config)
+        return tau_leaping.simulate(s=self.source, t_span=self.time_steps)
