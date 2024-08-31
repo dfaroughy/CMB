@@ -34,7 +34,7 @@ class MLP(nn.Module):
         self.act_fn = get_activation_function(config.ACTIVATION)
 
         if config.FEAT_ENCODING_TYPE == 'linear': self.feature_embedding = nn.Linear(self.dim_input, self.dim_feat_emb)   
-        elif config.TIME_ENCODING_TYPE == 'kolmogorov-arnold': self.feature_embedding = nn.Sequential(KANLinear(self.dim_input, self.dim_feat_emb), nn.Linear(self.dim_feat_emb, self.dim_feat_emb))                     
+        elif config.FEAT_ENCODING_TYPE == 'kolmogorov-arnold': self.feature_embedding = nn.Sequential(KANLinear(self.dim_input, self.dim_feat_emb), nn.Linear(self.dim_feat_emb, self.dim_feat_emb))                     
         elif config.FEAT_ENCODING_TYPE is None: self.feature_embedding = nn.Identity()
         else: raise NotImplementedError 
 
@@ -45,9 +45,9 @@ class MLP(nn.Module):
         elif config.TIME_ENCODING_TYPE is None: self.time_embedding = nn.Identity()
         else: raise NotImplementedError
 
-        if config.FEAT_ENCODING_TYPE == 'linear': self.context_embedding = nn.Linear(self.dim_context, self.dim_context_emb)   
-        elif config.TIME_ENCODING_TYPE == 'kolmogorov-arnold': self.context_embedding = nn.Sequential(KANLinear(self.dim_context, self.dim_context_emb), nn.Linear(self.dim_context_emb, self.dim_context_emb))                     
-        elif config.FEAT_ENCODING_TYPE is None: self.context_embedding = nn.Identity()
+        if config.CONTEXT_ENCODING_TYPE == 'linear': self.context_embedding = nn.Linear(self.dim_context, self.dim_context_emb)   
+        elif config.CONTEXT_ENCODING_TYPE == 'kolmogorov-arnold': self.context_embedding = nn.Sequential(KANLinear(self.dim_context, self.dim_context_emb), nn.Linear(self.dim_context_emb, self.dim_context_emb))                     
+        elif config.CONTEXT_ENCODING_TYPE is None: self.context_embedding = nn.Identity()
         else: raise NotImplementedError 
         
         self.layers = fc_block(dim_input=self.dim_feat_emb + self.dim_context_emb + self.dim_time_emb, 
@@ -58,14 +58,17 @@ class MLP(nn.Module):
                                dropout=self.dropout, 
                                use_batch_norm=True)
 
-    def forward(self, t, x, s=None, context=None):
+    def forward(self, t, x, k=None, context=None):
         x = x.to(self.device)
         t = t.to(self.device)
         context = context.to(self.device) if context is not None else None
-        t_emb = self.time_embedding(t)
-        x_emb = self.feature_embedding(x)
+
+        time_emb = self.time_embedding(t)
+        feature_emb = self.feature_embedding(x)
         context_emb = self.context_embedding(context) if context is not None else None
-        h = torch.concat([x_emb, context_emb, t_emb], dim=1) if context is not None else torch.concat([x_emb, t_emb], dim=1) 
+
+        h = torch.concat([feature_emb, context_emb, time_emb], dim=1) if context is not None else torch.concat([feature_emb, time_emb], dim=1) 
+        
         return self.layers(h)
 
     def init_weights(self):
@@ -103,7 +106,7 @@ class KolmogorovArnoldNetwork(nn.Module):
                             dropout=self.dropout, 
                             use_batch_norm=True)
 
-    def forward(self, t, x, s=None, context=None):
+    def forward(self, t, x, k=None, context=None):
         x = x.to(self.device)
         t = t.to(self.device)
         context = context.to(self.device) if context is not None else None

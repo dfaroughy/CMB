@@ -71,13 +71,13 @@ class CJBPipeline:
     def generate_samples(self, input_source, context=None):
         self.source = input_source.to(self.device) 
         self.context = context.to(self.device) if self.has_context else None
-        jumps, x1 = self.MarkovSolver() 
+        jumps, k1 = self.MarkovSolver() 
         self.jumps = jumps.detach().cpu()
-        self.x1 = x1.detach().cpu()
+        self.k1 = k1.detach().cpu()
         
     @torch.no_grad()
     def MarkovSolver(self):
         rate = TransitionRateModel(self.model, self.config)
         rate = ContextWrapper(rate, context=self.context if self.context is not None else None)
         tau_leaping = TauLeapingSolver(transition_rate=rate, config=self.config)
-        return tau_leaping.simulate(s=self.source, t_span=self.time_steps)
+        return tau_leaping.simulate(k=self.source, t_span=self.time_steps)

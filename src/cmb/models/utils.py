@@ -227,18 +227,18 @@ class ContextWrapper(torch.nn.Module):
         self.nn = net
         self.context = context
 
-    def forward(self, t, x, s):
+    def forward(self, t, x, k):
         if x is not None: 
             t = t.repeat(x.shape[0])
             t = self.reshape_time_like(t, x)
         else: 
-            t = t.repeat(s.shape[0])
-            t = self.reshape_time_like(t, s)
-        return self.nn(t=t, x=x, s=s, context=self.context)
+            t = t.repeat(k.shape[0])
+            t = self.reshape_time_like(t, k)
+        return self.nn(t=t, x=x, k=k, context=self.context)
 
-    def reshape_time_like(self, t, x):
+    def reshape_time_like(self, t, tensor):
         if isinstance(t, (float, int)): return t
-        else: return t.reshape(-1, *([1] * (x.dim() - 1)))
+        else: return t.reshape(-1, *([1] * (tensor.dim() - 1)))
 
 
 class EulerSolver:
@@ -246,14 +246,14 @@ class EulerSolver:
         self.vector_field = vector_field
         self.device = device
 
-    def trajectory(self, x, t_span):
+    def trajectory(self, t_span, x, k=None):
         time_steps = len(t_span)
         dt = (t_span[-1] - t_span[0]) / (time_steps - 1)
         trajectory = [x]
 
         for i in range(1, time_steps):
             t = t_span[i-1]
-            x = x + dt * self.vector_field(t, x=x, s=None).to(self.device)
+            x = x + dt * self.vector_field(t, x=x, k=k).to(self.device)
             trajectory.append(x)
 
         return torch.stack(trajectory)
@@ -266,26 +266,26 @@ class TauLeapingSolver:
         self.dim = config.DIM_INPUT
         self.vocab_size = config.VOCAB_SIZE 
 
-    def simulate(self, s, t_span):
+    def simulate(self, t_span, k, x=None):
         time_steps = len(t_span)
         tau = (t_span[-1] - t_span[0]) / (time_steps - 1)
-        trajectory = [s]
+        trajectory = [k]
 
         for i in range(1, time_steps):
             t = t_span[i-1]
     
-            current_state = s.clone()
-            rates = self.transition_rate(t, s=current_state, x=None).to(self.device)
+            current_state = k.clone()
+            rates = self.transition_rate(t, k=current_state, x=x).to(self.device)
             max_rate = torch.max(rates, dim=2)[1]
 
             jumps = torch.poisson(rates * tau).to(self.device) 
             mask =  torch.sum(jumps, dim=-1).type_as(current_state) <= 1
-            diff = torch.arange(self.vocab_size, device=self.device).view(1, 1, self.vocab_size) - x[:,:, None]
+            diff = torch.arange(self.vocab_size, device=self.device).view(1, 1, self.vocab_size) - k[:,:, None]
             net_jumps = torch.sum(jumps * diff, dim=-1).type_as(current_state)
             
-            s = current_state + net_jumps * mask
-            s = torch.clamp(s, min=0, max=self.vocab_size-1)            
-            trajectory.append(s.clone())
+            k = current_state + net_jumps * mask
+            k = torch.clamp(k, min=0, max=self.vocab_size-1)            
+            trajectory.append(k.clone())
 
         return torch.stack(trajectory), max_rate
 
@@ -298,17 +298,17 @@ class TransitionRateModel(torch.nn.Module):
         self.gamma = config.GAMMA
         self.time_epsilon = config.TIME_EPS
 
-    def forward(self, t, s, context=None):
+    def forward(self, t, k, x=None, context=None):
         t = t.squeeze()
-        if len(s.shape) != 2:
-            s = s.reshape(s.size(0),-1)
-        logits = self.model(t, s=s, x=None, context=context)
+        if len(k.shape) != 2:
+            k = k.reshape(k.size(0),-1)
+        logits = self.model(t, k=k, x=x, context=context)
         t1 = 1. - self.time_epsilon
         beta_integral = (t1 - t) * self.gamma
         wt = torch.exp(-self.vocab_size * beta_integral)
         A, B, C = 1. , (wt * self.vocab_size)/(1. - wt) , wt
         qx = softmax(logits, dim=2)
-        qy = torch.gather(qx, 2, s.long().unsqueeze(2))
+        qy = torch.gather(qx, 2, k.long().unsqueeze(2))
         rate = A + B[:, None, None] * qx + C[:, None, None] * qy
         return rate
 

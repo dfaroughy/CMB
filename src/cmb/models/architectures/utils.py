@@ -56,41 +56,14 @@ def get_activation_function(name: str='ReLU'):
         return activation_functions[name]
     else: return None
 
-# def transformer_timestep_embedding(timesteps, embedding_dim, max_positions=10000):
-#   assert len(timesteps.shape) == 1 
-#   half_dim = embedding_dim // 2
-#   # magic number 10000 is from transformers
-#   emb = math.log(max_positions) / (half_dim - 1)
-#   emb = torch.exp(torch.arange(half_dim, dtype=torch.float32, device=timesteps.device) * -emb)
-#   emb = timesteps.float()[:, None] * emb[None, :]
-#   emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=1)
-#   if embedding_dim % 2 == 1:  # zero pad
-#     emb = F.pad(emb, (0, 1), mode='constant')
-#   assert emb.shape == (timesteps.shape[0], embedding_dim)
-#   return emb
 
-# def sinusoidal_timestep_embedding(timesteps, dim, max_period=10000):
-#     """Create sinusoidal timestep embeddings.
+class PermutationLayer(nn.Module):
+    def __init__(self, *dims):
+        super(PermutationLayer, self).__init__()
+        self.dims = dims
 
-#     :param timesteps: a 1-D Tensor of N indices, one per batch element. These may be fractional.
-#     :param dim: the dimension of the output.
-#     :param max_period: controls the minimum frequency of the embeddings.
-#     :return: an [N x dim] Tensor of positional embeddings.
-#     """
-#     half = dim // 2
-#     freqs = torch.exp( -math.log(max_period) * torch.arange(start=0, end=half, dtype=torch.float32, device=timesteps.device) / half)
-#     args = timesteps[:, None].float() * freqs[None]
-#     embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
-#     if dim % 2:
-#         embedding = torch.cat([embedding, torch.zeros_like(embedding[:, :1])], dim=-1)
-#     return embedding
-
-
-# import torch
-# import torch.nn as nn
-# import torch.nn.functional as F
-# import math
-
+    def forward(self, x):
+        return x.permute(*self.dims)    
 
 class SinusoidalPositionalEncoding(nn.Module):
     """ Positional encoding with log-linear spaced frequencies for each dimension        
