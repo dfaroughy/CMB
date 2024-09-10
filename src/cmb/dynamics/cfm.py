@@ -12,10 +12,11 @@ class ConditionalFlowMatching :
 	def sample_coupling(self, batch):
 		""" conditional variable z = (x_0, x1) ~ pi(x_0, x_1)
 		"""		
-		self.x0 = batch.source
-		self.x1 = batch.target
-		self.context = batch.context if self.config.DIM_CONTEXT > 0 else None
-		self.labels = batch.labels if self.config.DIM_LABELS > 0 else None
+		self.x0 = batch.source_continuous
+		self.x1 = batch.target_continuous
+		self.k1	= batch.target_discrete if hasattr(batch, 'target_discrete') else None
+		self.context = batch.context if hasattr(batch, 'context') else None
+		self.mask = batch.mask if hasattr(batch, 'mask') else None
 
 	def sample_time(self):
 		""" sample time: t ~ U[0,1]
@@ -27,7 +28,7 @@ class ConditionalFlowMatching :
 		""" sample conditional bridge: x_t ~ p_t(x|x_0, x_1)
 		"""
 		mean = self.t * self.x1 + (1. - self.t) * self.x0
-		std = self.config.SIGMA
+		std = self.config.sigma
 		self.bridge = mean + std * torch.randn_like(mean)
 
 	def get_drift(self):
@@ -45,8 +46,7 @@ class ConditionalFlowMatching :
 		self.sample_time() 
 		self.sample_bridge()
 		self.get_drift()
-
-		vt = model(x=self.bridge, t=self.t, context=self.context)
+		vt = model(t=self.t, x=self.bridge, k=self.k1 , context=self.context, mask=self.mask)
 		ut = self.drift.to(vt.device)
 		loss = self.loss_fn(vt, ut)
 		return loss
@@ -59,19 +59,23 @@ class ConditionalFlowMatching :
 class OTCFM(ConditionalFlowMatching ):
 	def sample_coupling(self, batch):
 		OT = OTPlanSampler()	
-		self.x0, self.x1 = OT.sample_plan(batch.source, batch.target)
-		self.context = batch.context if self.config.DIM_CONTEXT > 0 else None
+		self.x0, self.x1 = OT.sample_plan(batch.source_continuous, batch.target_continuous)	
+		self.k1	= batch.target_discrete if hasattr(batch, 'target_discrete') else None
+		self.context = batch.context if hasattr(batch, 'context') else None
+		self.mask = batch.mask if hasattr(batch, 'mask') else None
 
 class SBCFM(ConditionalFlowMatching):
 	def sample_coupling(self, batch):
-		regulator = 2 * self.config.SIGMA**2
+		regulator = 2 * self.config.sigma**2
 		SB = OTPlanSampler(reg=regulator)
-		self.x0, self.x1 = SB.sample_plan(batch.source, batch.target)	
-		self.context = batch.context if self.config.DIM_CONTEXT > 0 else None
+		self.x0, self.x1 = SB.sample_plan(batch.source_continuous, batch.target_continuous)	
+		self.k1	= batch.target_discrete if hasattr(batch, 'target_discrete') else None
+		self.context = batch.context if hasattr(batch, 'context') else None
+		self.mask = batch.mask if hasattr(batch, 'mask') else None
 
 	def sample_bridge(self):
 		self.mean = self.t * self.x1 + (1 - self.t) * self.x0
-		std = self.config.SIGMA * torch.sqrt(self.t * (1 - self.t))
+		std = self.config.sigma * torch.sqrt(self.t * (1 - self.t))
 		self.bridge = self.mean + std * torch.randn_like(self.mean)
 		
 	def get_drift(self):

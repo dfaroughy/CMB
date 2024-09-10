@@ -2,34 +2,39 @@ import torch
 import numpy as np
 from torch.utils.data import DataLoader, Subset
 from torch.utils.data import Dataset
-from dataclasses import dataclass
 from collections import namedtuple
 
-class AbstractDataClass:
-    def __init__(self, config: dataclass):
-        source: torch.Tensor = None
-        target: torch.Tensor = None
-        context: torch.Tensor = None
-        labels: torch.Tensor = None
-        mask: torch.Tensor = None
+# class AbstractDataClass:
+#     def __init__(self, config: dataclass):
+#         source: torch.Tensor = None
+#         target: torch.Tensor = None
+#         context: torch.Tensor = None
+#         labels: torch.Tensor = None
+#         mask: torch.Tensor = None
 
-    def get_target(self): pass
-    def get_source(self): pass
-    def get_context(self): pass
-    def get_labels(self): pass
-    def get_mask(self): pass
+#     def get_target(self): pass
+#     def get_source(self): pass
+#     def get_context(self): pass
+#     def get_labels(self): pass
+#     def get_mask(self): pass
 
 class DefineDataSet(Dataset):
-    def __init__(self, data: AbstractDataClass):
+    def __init__(self, data):
         self.data = data
-        self.databatch = namedtuple('databatch', ['source', 'target', 'context', 'labels', 'mask'])
+        self.databatch = namedtuple('databatch', ['source_continuous', 
+                                                  'target_continuous', 
+                                                  'source_discrete', 
+                                                  'target_discrete', 
+                                                #   'context', 
+                                                  'mask'])
 
     def __getitem__(self, idx):
-        return self.databatch(source=self.data.source[idx],
-                              target=self.data.target[idx],
-                              context=self.data.context[idx],
-                              labels=self.data.labels[idx],
-                              mask=self.data.mask[idx])
+        return self.databatch(source_continuous=self.data.source.continuous[idx],
+                              target_continuous=self.data.target.continuous[idx],
+                              source_discrete=self.data.source.discrete[idx],
+                              target_discrete=self.data.target.discrete[idx],
+                            #   context=self.data.target.context[idx],
+                              mask=self.data.target.mask[idx])
     def __len__(self):
         return len(self.data.target)
     
@@ -39,14 +44,14 @@ class DefineDataSet(Dataset):
 
 class DefineDataloader:
     def __init__(self, 
-                 dataclass: AbstractDataClass, 
+                 dataclass, 
                  batch_size: int=None, 
                  data_split_frac: tuple=None): 
         self.dataclass = dataclass
         self.config = dataclass.config       
         self.dataset = DefineDataSet(dataclass) 
-        self.data_split = self.config.DATA_SPLIT_FRACS if data_split_frac is None else data_split_frac
-        self.batch_size = self.config.BATCH_SIZE if batch_size is None else batch_size
+        self.data_split = self.config.data_split_frac if data_split_frac is None else data_split_frac
+        self.batch_size = self.config.batch_size if batch_size is None else batch_size
         self.dataloader()
 
     def train_val_test_split(self, shuffle=False):

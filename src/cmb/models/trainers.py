@@ -11,7 +11,7 @@ from tqdm.auto import tqdm
 from pathlib import Path
 from copy import deepcopy
 
-from cmb.data.utils import AbstractDataClass, DefineDataloader
+from cmb.data.utils import DefineDataloader
 from cmb.models.utils import Train_Step, Validation_Step, Optimizer, Scheduler, Logger
 
 class CMBTrainer:
@@ -24,17 +24,17 @@ class CMBTrainer:
     - config: Configuration dataclass containing training configurations.
     """
 
-    def __init__(self, dynamics, model, dataclass: AbstractDataClass):
+    def __init__(self, dynamics, model, dataclass):
         #...config:
         self.config = dataclass.config
         self.dynamics = dynamics
-        self.model = model.to(torch.device(self.config.DEVICE))
+        self.model = model.to(torch.device(self.config.device))
         self.dataloader = DefineDataloader(dataclass)
-        self.workdir = Path(self.config.WORKDIR)
-        self.epochs = self.config.EPOCHS
-        self.early_stopping = self.config.EPOCHS if self.config.EARLY_STOPPING is None else self.config.EARLY_STOPPING
-        self.min_epochs = 0 if self.config.MIN_EPOCHS is None else self.config.MIN_EPOCHS
-        self.print_epochs = 1 if self.config.PRINT_EPOCHS is None else self.config.PRINT_EPOCHS
+        self.workdir = Path(self.config.workdir)
+        self.epochs = self.config.epochs
+        self.early_stopping = self.config.epochs if self.config.early_stopping is None else self.config.early_stopping
+        self.min_epochs = 0 if self.config.min_epochs is None else self.config.min_epochs
+        self.print_epochs = 1 if self.config.print_epochs is None else self.config.print_epochs
 
         #...logger & tensorboard:
         os.makedirs(self.workdir/'tensorboard', exist_ok=True)
@@ -55,7 +55,7 @@ class CMBTrainer:
 
         #...train
 
-        if self.config.MULTI_GPU and torch.cuda.device_count() > 1:
+        if self.config.multi_gpu and torch.cuda.device_count() > 1:
             print("INFO: using ", torch.cuda.device_count(), "GPUs...")
             self.model = DataParallel(self.model)
 
@@ -83,14 +83,14 @@ class CMBTrainer:
         if model is None:
             self.best_epoch_model = type(self.model)(self.config)
             self.last_epoch_model = type(self.model)(self.config)
-            self.best_epoch_model.load_state_dict(torch.load(path/'best_epoch_model.pth', map_location=(torch.device('cpu') if self.config.DEVICE=='cpu' else None)))
-            self.last_epoch_model.load_state_dict(torch.load(path/'last_epoch_model.pth', map_location=(torch.device('cpu') if self.config.DEVICE=='cpu' else None)))
+            self.best_epoch_model.load_state_dict(torch.load(path/'best_epoch_model.pth', map_location=(torch.device('cpu') if self.config.device=='cpu' else None)))
+            self.last_epoch_model.load_state_dict(torch.load(path/'last_epoch_model.pth', map_location=(torch.device('cpu') if self.config.device=='cpu' else None)))
         elif model == 'best':
             self.best_epoch_model = type(self.model)(self.config)
-            self.best_epoch_model.load_state_dict(torch.load(path/'best_epoch_model.pth', map_location=(torch.device('cpu') if self.config.DEVICE=='cpu' else None)))
+            self.best_epoch_model.load_state_dict(torch.load(path/'best_epoch_model.pth', map_location=(torch.device('cpu') if self.config.device=='cpu' else None)))
         elif model == 'last':
             self.last_epoch_model = type(self.model)(self.config)
-            self.last_epoch_model.load_state_dict(torch.load(path/'last_epoch_model.pth', map_location=(torch.device('cpu') if self.config.DEVICE=='cpu' else None)))
+            self.last_epoch_model.load_state_dict(torch.load(path/'last_epoch_model.pth', map_location=(torch.device('cpu') if self.config.device=='cpu' else None)))
         else: raise ValueError("which_model must be either 'best', 'last', or None")
 
     def _save_best_epoch_model(self, improved):

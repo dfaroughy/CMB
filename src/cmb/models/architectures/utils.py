@@ -3,6 +3,31 @@ import torch
 import torch.nn.functional as F
 import torch.nn as nn
 
+
+def get_activation_function(name: str='ReLU'):
+    if name is not None:
+        activation_functions = {"ReLU": nn.ReLU(),
+                                "LeakyReLU": nn.LeakyReLU(),
+                                "ELU": nn.ELU(),
+                                "SELU": nn.SELU(),
+                                "GLU": nn.GLU(),
+                                "GELU": nn.GELU(),
+                                "CELU": nn.CELU(),
+                                "PReLU": nn.PReLU(),
+                                "Sigmoid": nn.Sigmoid(),
+                                "Tanh": nn.Tanh(),
+                                "Hardswish": nn.Hardswish(),
+                                "Hardtanh": nn.Hardtanh(),
+                                "LogSigmoid": nn.LogSigmoid(),
+                                "Softplus": nn.Softplus(),
+                                "Softsign": nn.Softsign(),
+                                "Softshrink": nn.Softshrink(),
+                                "Softmin": nn.Softmin(),
+                                "Softmax": nn.Softmax()}
+        return activation_functions[name]
+    else: return None
+
+
 def fc_block(dim_input, dim_output, dim_hidden, num_layers, activation, dropout, use_batch_norm=False):
 
   BatchNorm = nn.BatchNorm1d if use_batch_norm else nn.Identity
@@ -32,29 +57,73 @@ def kan_block(dim_input, dim_output, dim_hidden, num_layers, dropout, use_batch_
   layers.append(nn.Linear(dim_hidden, dim_output))
   return nn.Sequential(*layers)
 
+class MultiHeadAttention(nn.Module):
+    def __init__(self, dim_input, dim_output, dim_hidden=128, num_heads=4, dropout=0.0, attention_embedding='linear'):
+        super().__init__()
 
-def get_activation_function(name: str='ReLU'):
-    if name is not None:
-        activation_functions = {"ReLU": nn.ReLU(),
-                                "LeakyReLU": nn.LeakyReLU(),
-                                "ELU": nn.ELU(),
-                                "SELU": nn.SELU(),
-                                "GLU": nn.GLU(),
-                                "GELU": nn.GELU(),
-                                "CELU": nn.CELU(),
-                                "PReLU": nn.PReLU(),
-                                "Sigmoid": nn.Sigmoid(),
-                                "Tanh": nn.Tanh(),
-                                "Hardswish": nn.Hardswish(),
-                                "Hardtanh": nn.Hardtanh(),
-                                "LogSigmoid": nn.LogSigmoid(),
-                                "Softplus": nn.Softplus(),
-                                "Softsign": nn.Softsign(),
-                                "Softshrink": nn.Softshrink(),
-                                "Softmin": nn.Softmin(),
-                                "Softmax": nn.Softmax()}
-        return activation_functions[name]
-    else: return None
+        assert dim_hidden % num_heads == 0, "hidden dimension must be divisible by number of heads"
+        self.dim_head= dim_hidden // num_heads
+        self.num_head = num_heads
+        self.dim_hidden = dim_hidden
+        self.register_buffer("tril", torch.tril(torch.ones(dim_hidden, dim_hidden)))
+
+        if attention_embedding == 'linear': 
+            self.k = nn.Linear(dim_input, dim_hidden, bias=False)
+            self.q = nn.Linear(dim_input, dim_hidden, bias=False)
+            self.v = nn.Linear(dim_input, dim_hidden, bias=False)
+        elif attention_embedding == 'kolmogorov-arnold': 
+            self.k = KANLinear(dim_input, dim_hidden)
+            self.q = KANLinear(dim_input, dim_hidden)
+            self.v = KANLinear(dim_input, dim_hidden)
+            
+        self.proj = nn.Linear(dim_hidden, dim_output)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x, mask=None):
+
+        b, n, dim = x.shape
+        K, V, Q  = self.k(x), self.v(x), self.q(x)  # (B, T, E)
+
+        # We implicitly split the matrix by adding a `num_heads` dimension
+        # Unroll last dim: (b, n, d) -> (b, n, num_heads, head_dim)
+        K = K.view(b, n, self.num_head, self.dim_head)
+        V = V.view(b, n, self.num_head, self.dim_head)
+        Q = Q.view(b, n, self.num_head, self.dim_head)
+
+        # Transpose: (b, n, num_head, head_dim) -> (b, num_head, n, head_dim)
+        K = K.transpose(1, 2)
+        Q = Q.transpose(1, 2)
+        V = V.transpose(1, 2)
+
+        # Compute scaled dot-product attention
+        # (b, num_head, n, head_dim) @ (b, num_head, head_dim, n) -> (b, num_head,n, n)
+        QK = Q @ K.transpose(2, 3) * K.shape[-1] ** -0.5
+
+        if mask is not None:
+            mask = mask.expand(-1, -1, n)  # (b, n) -> (b, n, n)
+            # (b, n, n) -> (b, num_head, n, n)
+            mask = mask.unsqueeze(1).expand(b, self.num_head, n, n)
+            # Need to set a finite number for the masking, instead of -inf,
+            # otherwise softmax results in nans.
+            # (b, num_head, n, n)
+            QK = QK.masked_fill(mask == 0, float("-1e9"))
+
+        # Apply the causal mask, cropped to the sequence length
+        # (b, num_head, n, n)
+        QK = QK.masked_fill(self.tril[:n, :n] == 0, float("-inf"))
+
+        A = F.softmax(QK, dim=-1)  # (B, num_head, T, T)
+        A = self.dropout(A)
+
+        # attn_weights have shape (b, num_head, n, n) and V (b, num_head, n, head_dim)
+        # (b, num_head, n, head_dim) -> (b, n, num_head, head_dim)
+        context_vec = (A @ V).transpose(1, 2)
+
+        # Combine heads, where dim_hidden = num_head * dim_head
+        context_vec = context_vec.contiguous().view(b, n, self.dim_hidden)
+        context_vec = self.proj(context_vec)
+
+        return context_vec
 
 
 class PermutationLayer(nn.Module):

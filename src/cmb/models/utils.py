@@ -83,13 +83,13 @@ class Optimizer:
 
     def __init__(self, config: dataclass):
         self.config = config
-        self.optimizer = config.OPTIMIZER
-        self.lr = config.LR 
-        self.weight_decay = config.WEIGHT_DECAY
-        self.betas = config.OPTIMIZER_BETAS
-        self.eps = config.OPTIMIZER_EPS
-        self.amsgrad = config.OPTIMIZER_AMSGRAD
-        self.gradient_clip = config.GRADIENT_CLIP 
+        self.optimizer = config.optimizer
+        self.lr = config.lr 
+        self.weight_decay = config.weight_decay
+        self.betas = config.optimizer_betas
+        self.eps = config.optimizer_eps
+        self.amsgrad = config.optimizer_amsgrad
+        self.gradient_clip = config.gradient_clip 
 
     def get_optimizer(self, parameters):
 
@@ -134,11 +134,11 @@ class Scheduler:
     """
 
     def __init__(self, config: dataclass):
-        self.scheduler = config.SCHEDULER
-        self.T_max = config.SCHEDULER_T_MAX
-        self.eta_min = config.SCHEDULER_ETA_MIN
-        self.gamma = config.SCHEDULER_GAMMA
-        self.step_size = config.SCHEDULER_STEP_SIZE
+        self.scheduler = config.scheduler
+        self.T_max = config.scheduler_t_max
+        self.eta_min = config.scheduler_eta_min
+        self.gamma = config.scheduler_gamma
+        self.step_size = config.scheduler_step_size
 
     def get_scheduler(self, optimizer):
         if self.scheduler == 'CosineAnnealingLR': return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=self.T_max, eta_min=self.eta_min)
@@ -262,9 +262,9 @@ class EulerSolver:
 class TauLeapingSolver:
     def __init__(self, transition_rate, config):
         self.transition_rate = transition_rate
-        self.device = config.DEVICE
-        self.dim = config.DIM_INPUT
-        self.vocab_size = config.VOCAB_SIZE 
+        self.device = config.device
+        self.dim = config.dim_input
+        self.vocab_size = config.vocab_size 
 
     def simulate(self, t_span, k, x=None):
         time_steps = len(t_span)
@@ -293,10 +293,10 @@ class TransitionRateModel(torch.nn.Module):
     def __init__(self, model, config):
         super().__init__()
         self.model = model # model should output logits
-        self.vocab_size = config.VOCAB_SIZE
+        self.vocab_size = config.vocab_size 
         self.config = config
-        self.gamma = config.GAMMA
-        self.time_epsilon = config.TIME_EPS
+        self.gamma = config.gamma
+        self.time_epsilon = config.time_eps
 
     def forward(self, t, k, x=None, context=None):
         t = t.squeeze()
