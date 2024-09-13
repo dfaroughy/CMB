@@ -12,18 +12,20 @@ class ConditionalMarkovBridge :
     '''
     def __init__(self, config: dataclass):
         self.config = config
-        self.vocab_size = config.VOCAB_SIZE
-        self.alpha = config.ALPHA
+        self.vocab_size = config.vocab_size
+        self.lam = config.lam                             # weight for discrete loss wrt continuous loss
         self.loss_continuous_fn = MSELoss(reduction='mean')
         self.loss_discrete_fn = CrossEntropyLoss(reduction='mean')
 
     def sample_coupling(self, batch):
         """ conditional variable z = (x_0, x1) ~ pi(x_0, x_1)
         """		
-        self.x0 = batch.source
-        self.x1 = batch.target
-        self.s0 = batch.labels 
-        self.s1 = batch.context 
+        self.x0 = batch.source_continuous
+        self.x1 = batch.target_continuous
+        self.k0 = batch.source_discrete
+        self.k1 = batch.target_discrete
+        self.context = None
+        self.mask = None
 
     def sample_time(self):
         """ sample time: t ~ U[0,1]
@@ -36,15 +38,27 @@ class ConditionalMarkovBridge :
         """
         #...continous bridge:
         mean = self.t * self.x1 + (1. - self.t) * self.x0
-        std = self.config.SIGMA
+        std = self.config.sigma
         self.continuous_bridge = mean + std * torch.randn_like(mean)
-		
+	
+
         #...discrete bridge:
-        s = torch.arange(0, self.vocab_size)
-        s = s[None, None, :].repeat((self.s0.size(0), self.s0.size(1), 1)).float()
-        s = s.to(self.s0.device)
-        transition_probs = self.telegram_bridge_probability(s , self.s1, self.s0, self.t.squeeze())
-        self.discrete_bridge = Categorical(transition_probs).sample().to(self.s1.device)
+        k = torch.arange(0, self.vocab_size)
+
+        # Ensure k0 has at least 2 dimensions
+        if self.k0.dim() == 1:
+            self.k0 = self.k0.unsqueeze(1)  # Add an extra dimension if needed
+        if self.k1.dim() == 1:
+            self.k1 = self.k1.unsqueeze(1)
+
+        # Adjust the repeat based on the actual dimensions of k0 and k1
+        k = k[None, None, :].repeat(self.k0.size(0), self.k0.size(1), 1).float()
+        k = k.to(self.k0.device)
+
+        # k = k[None, None, :].repeat((self.k0.size(0), self.k0.size(1), 1)).float()
+        # k = k.to(self.k0.device)
+        transition_probs = self.telegram_bridge_probability(k, self.k1, self.k0, self.t.squeeze())
+        self.discrete_bridge = Categorical(transition_probs).sample().to(self.k1.device)
 
     def get_drift(self):
         """ conditional drift u_t(x|x_0,x_1)
@@ -62,14 +76,13 @@ class ConditionalMarkovBridge :
         self.sample_bridge()
         self.get_drift()
 
-        vt, logits = model(x=self.continuous_bridge, s=self.discrete_bridge , t=self.t)
+        vt, logits = model(t=self.t, x=self.continuous_bridge, k=self.discrete_bridge, context=self.context, mask=self.mask)
         logits = logits.reshape(-1, self.vocab_size)
-        targets = self.s1.reshape(-1).long()
+        targets = self.k1.reshape(-1).long()
         targets = targets.to(logits.device)
         ut = self.drift.to(vt.device)
+        loss = self.loss_continuous_fn(vt, ut) + self.lam * self.loss_discrete_fn(logits, targets)
 
-        loss = self.loss_continuous_fn(vt, ut) + self.alpha * self.loss_discrete_fn(logits, targets)
-                                                                                    
         return loss
 
     def reshape_time(self, t, x):
@@ -93,7 +106,7 @@ class ConditionalMarkovBridge :
         """
         t = right_time_size(t,x).to(x0.device)
         t0 = right_time_size(t0,x).to(x0.device)
-        beta_t = (t - t0) * self.config.GAMMA
+        beta_t = (t - t0) * self.config.gamma
         w_t = torch.exp(-self.vocab_size * beta_t)
         x, x0 = right_shape(x), right_shape(x0)
 

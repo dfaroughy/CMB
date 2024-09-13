@@ -13,69 +13,296 @@ from cmb.models.architectures.utils import (fc_block,
 
 #...Multi-Layer Perceptron architecture:
 
+
 class MLP(nn.Module):
     def __init__(self, config):
         super().__init__()
-        self.device = config.DEVICE
+        self.device = config.device
+        self.vocab_size = config.vocab_size
         self.define_deep_models(config)
         self.init_weights()
         self.to(self.device)
 
     def define_deep_models(self, config):
-        self.dim_input = config.DIM_INPUT
-        self.dim_output = config.DIM_INPUT
-        self.dim_hidden = config.DIM_HIDDEN
-        self.dim_context = config.DIM_CONTEXT
-        self.dim_feat_emb = config.DIM_FEAT_EMB if config.FEAT_ENCODING_TYPE is not None else config.DIM_INPUT
-        self.dim_time_emb = config.DIM_TIME_EMB if config.TIME_ENCODING_TYPE is not None else 1
-        self.dim_context_emb = config.DIM_CONTEXT_EMB if config.CONTEXT_ENCODING_TYPE is not None else config.DIM_CONTEXT
-        self.num_layers = config.NUM_LAYERS
-        self.dropout = config.DROPOUT
-        self.act_fn = get_activation_function(config.ACTIVATION)
+        self.dim_continuous = config.dim_continuous
+        self.dim_context = config.dim_context
+        self.dim_time_emb = config.dim_time_emb 
+        self.dim_context_emb = config.dim_context_emb
+        self.dim_hidden = config.dim_hidden
+        self.num_layers = config.num_layers
+        self.dropout = config.dropout
+        self.act_fn = get_activation_function(config.activation)
+        self.use_batch_norm = config.use_batch_norm
 
-        if config.FEAT_ENCODING_TYPE == 'linear': self.feature_embedding = nn.Linear(self.dim_input, self.dim_feat_emb)   
-        elif config.FEAT_ENCODING_TYPE == 'kolmogorov-arnold': self.feature_embedding = nn.Sequential(KANLinear(self.dim_input, self.dim_feat_emb), nn.Linear(self.dim_feat_emb, self.dim_feat_emb))                     
-        elif config.FEAT_ENCODING_TYPE is None: self.feature_embedding = nn.Identity()
-        else: raise NotImplementedError 
+        #...Time embedding:
 
-        if config.TIME_ENCODING_TYPE == 'sinusoidal': self.time_embedding = nn.Sequential(SinusoidalPositionalEncoding(self.dim_time_emb, max_period=10000), nn.Linear(self.dim_time_emb, self.dim_time_emb))
-        elif config.TIME_ENCODING_TYPE == 'randomfourier': self.time_embedding = nn.Sequential(GaussianFourierFeatures(self.dim_time_emb, scale=0.5),  nn.Linear(self.dim_time_emb, self.dim_time_emb))
-        elif config.TIME_ENCODING_TYPE == 'kolmogorov-arnold': self.time_embedding = nn.Sequential(KANLinear(1, self.dim_time_emb), nn.Linear(self.dim_time_emb, self.dim_time_emb))
-        elif config.TIME_ENCODING_TYPE == 'linear': self.time_embedding = nn.Linear(1, self.dim_time_emb)                                                                
-        elif config.TIME_ENCODING_TYPE is None: self.time_embedding = nn.Identity()
-        else: raise NotImplementedError
+        if hasattr(config, 'time_embedding'):
+            if config.time_embedding == 'sinusoidal': self.time_embedding = SinusoidalPositionalEncoding(self.dim_time_emb, max_period=10000)
+            elif config.time_embedding == 'randomfourier': self.time_embedding = GaussianFourierFeatures(self.dim_time_emb, scale=0.5)
+            elif config.time_embedding == 'kolmogorov-arnold': self.time_embedding = KANLinear(1, self.dim_time_emb)
+            elif config.time_embedding == 'linear': self.time_embedding = nn.Linear(1, self.dim_time_emb)  
+            else: raise NotImplementedError                                                              
+        else:
+            self.dim_time_emb = 1
 
-        if config.CONTEXT_ENCODING_TYPE == 'linear': self.context_embedding = nn.Linear(self.dim_context, self.dim_context_emb)   
-        elif config.CONTEXT_ENCODING_TYPE == 'kolmogorov-arnold': self.context_embedding = nn.Sequential(KANLinear(self.dim_context, self.dim_context_emb), nn.Linear(self.dim_context_emb, self.dim_context_emb))                     
-        elif config.CONTEXT_ENCODING_TYPE is None: self.context_embedding = nn.Identity()
-        else: raise NotImplementedError 
+        #...Continuous embedding:
+        if hasattr(config, 'continuous_embedding'):
+            if config.continuous_embedding == 'linear': self.continuous_embedding = nn.Linear(self.dim_continuous, self.dim_context_emb)
+            else: raise NotImplementedError
+        else:
+            self.dim_continuous_emb = self.dim_continuous
+
+        #...Context embedding:
+            
+        if hasattr(config, 'context_embedding') and self.dim_context > 0: 
+            self.dim_context_emb = config.dim_context_emb
+            if config.context_embedding == 'embedding': self.context_embedding = nn.Embedding(config.vocab_size, self.dim_context_emb)
+            elif config.context_embedding == 'linear': self.time_embedding = nn.Linear(self.dim_context, self.dim_context_emb)  
+            else: raise NotImplementedError                                                              
+        else:
+            self.dim_context_emb = self.dim_context if self.dim_context > 0 else 0
         
-        self.layers = fc_block(dim_input=self.dim_feat_emb + self.dim_context_emb + self.dim_time_emb, 
-                               dim_output=self.dim_output, 
+        #...MLP layers:
+                        
+        self.layers = fc_block(dim_input=self.dim_continuous + self.dim_time_emb + self.dim_context_emb , 
+                               dim_output=self.dim_continuous, 
                                dim_hidden=self.dim_hidden, 
                                num_layers=self.num_layers, 
                                activation=self.act_fn, 
                                dropout=self.dropout, 
-                               use_batch_norm=True)
+                               use_batch_norm=self.use_batch_norm)
 
-    def forward(self, t, x, k=None, context=None):
-        x = x.to(self.device)
-        t = t.to(self.device)
-        context = context.to(self.device) if context is not None else None
 
-        time_emb = self.time_embedding(t)
-        feature_emb = self.feature_embedding(x)
-        context_emb = self.context_embedding(context) if context is not None else None
-
-        h = torch.concat([feature_emb, context_emb, time_emb], dim=1) if context is not None else torch.concat([feature_emb, time_emb], dim=1) 
+    def forward(self, t, x, context=None, mask=None):
         
-        return self.layers(h)
+        t = t.to(self.device)
+        x = x.to(self.device)
+        t_emb = self.time_embedding(t) if hasattr(self, 'time_embedding') else t
+        x_emb = self.continuous_embedding(x)
+        features = [t_emb, x_emb]
+        
+        if context is not None:
+            context = context.to(self.device)
+            context_emb = self.context_embedding(context) if hasattr(self, 'context_embedding') else context
+            features.append(context_emb)
+
+        if mask is not None:
+            mask = mask.to(self.device)
+
+        h = torch.concat(features, dim=1) 
+        h = self.layers(h)
+        return h
+
+
+    def init_weights(self):
+        for layer in self.layers:
+            if isinstance(layer, nn.Linear):
+                nn.init.xavier_uniform_(layer.weight)
+
+
+
+
+
+
+
+
+class MLP(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.device = config.device
+        self.vocab_size = config.vocab_size
+        self.define_deep_models(config)
+        self.init_weights()
+        self.to(self.device)
+
+    def define_deep_models(self, config):
+        self.dim_continuous = config.dim_continuous
+        self.dim_discrete = config.dim_discrete
+        self.dim_context = config.dim_context
+        self.dim_hidden = config.dim_hidden
+        self.dim_time_emb = config.dim_time_emb 
+        self.num_layers = config.num_layers
+        self.dropout = config.dropout
+        self.act_fn = get_activation_function(config.activation)
+        self.use_batch_norm = config.use_batch_norm
+
+        #...Time embedding:
+
+        if hasattr(config, 'time_embedding'):
+            if config.time_embedding == 'sinusoidal': self.time_embedding = SinusoidalPositionalEncoding(self.dim_time_emb, max_period=10000)
+            elif config.time_embedding == 'randomfourier': self.time_embedding = GaussianFourierFeatures(self.dim_time_emb, scale=0.5)
+            elif config.time_embedding == 'kolmogorov-arnold': self.time_embedding = KANLinear(1, self.dim_time_emb)
+            elif config.time_embedding == 'linear': self.time_embedding = nn.Linear(1, self.dim_time_emb)  
+            else: raise NotImplementedError                                                              
+        else:
+            self.dim_time_emb = 1
+
+        #...Discrete embedding:
+            
+        if self.dim_discrete > 0: 
+            self.dim_discrete_emb = config.dim_discrete_emb
+            self.discrete_embedding = nn.Sequential(nn.Embedding(self.vocab_size, self.dim_discrete_emb),
+                                                    nn.Flatten(start_dim=1), 
+                                                    nn.Linear(self.dim_discrete * self.dim_discrete_emb, self.dim_discrete_emb)) 
+        else:
+            self.dim_discrete_emb = 0
+
+        #...Context embedding:
+            
+        if hasattr(config, 'context_embedding') and self.dim_context > 0: 
+            self.dim_context_emb = config.dim_context_emb
+            if config.context_embedding == 'embedding': self.context_embedding = nn.Embedding(config.vocab_size, self.dim_context_emb)
+            elif config.context_embedding == 'linear': self.time_embedding = nn.Linear(self.dim_context, self.dim_context_emb)  
+            else: raise NotImplementedError                                                              
+        else:
+            self.dim_context_emb = self.dim_context if self.dim_context > 0 else 0
+        
+        #...MLP layers:
+                        
+        self.layers = fc_block(dim_input=self.dim_continuous + self.dim_context_emb + self.dim_discrete_emb + self.dim_time_emb, 
+                               dim_output=self.dim_continuous + config.dim_discrete * config.vocab_size, 
+                               dim_hidden=self.dim_hidden, 
+                               num_layers=self.num_layers, 
+                               activation=self.act_fn, 
+                               dropout=self.dropout, 
+                               use_batch_norm=self.use_batch_norm)
+
+
+    def forward(self, t, x=None, k=None, context=None, mask=None):
+        
+        t = t.to(self.device)
+        t = self.time_embedding(t) if hasattr(self, 'time_embedding') else t
+        features = [t]
+        
+        if x is not None:
+            x = x.to(self.device)
+            features.append(x)
+
+        if k is not None:
+            k = k.to(self.device)
+            k = self.discrete_embedding(k).squeeze(1)
+            features.append(k)
+
+        if context is not None:
+            context = context.to(self.device)
+            context = self.context_embedding(context) if hasattr(self, 'context_embedding') else context
+            features.append(context)
+
+        if mask is not None:
+            mask = mask.to(self.device)
+
+        h = torch.concat(features, dim=1) 
+        h = self.layers(h)
+
+        if self.dim_continuous * self.dim_discrete==0:
+            return h if self.dim_continuous > 0 else h.reshape(k.size(0), self.dim_discrete, self.vocab_size)
+        else:
+            continuous = h[:, :self.dim_continuous]
+            discrete = h[:, self.dim_continuous:]
+            discrete = discrete.reshape(k.size(0), self.dim_discrete, self.vocab_size)
+            return continuous, discrete
 
     def init_weights(self):
         for layer in self.layers:
             if isinstance(layer, nn.Linear):
                 nn.init.xavier_uniform_(layer.weight)
     
+
+class KolmogorovArnoldNetwork(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.device = config.device
+        self.define_deep_models(config)
+        self.init_weights()
+        self.to(self.device)
+
+    def define_deep_models(self, config):
+        self.dim_continuous = config.dim_continuous
+        self.dim_discrete = config.dim_discrete
+        self.dim_context = config.dim_context
+        self.dim_hidden = config.dim_hidden
+        self.dim_time_emb = config.dim_time_emb 
+        self.num_layers = config.num_layers
+        self.dropout = config.dropout
+        self.act_fn = get_activation_function(config.activation)
+        self.use_batch_norm = config.use_batch_norm
+
+        #...Time embedding:
+
+        if hasattr(config, 'time_embedding'):
+            if config.time_embedding == 'sinusoidal': self.time_embedding = SinusoidalPositionalEncoding(self.dim_time_emb, max_period=10000)
+            elif config.time_embedding == 'randomfourier': self.time_embedding = GaussianFourierFeatures(self.dim_time_emb, scale=0.5)
+            elif config.time_embedding == 'kolmogorov-arnold': self.time_embedding = KANLinear(1, self.dim_time_emb)
+            elif config.time_embedding == 'linear': self.time_embedding = nn.Linear(1, self.dim_time_emb)  
+            else: raise NotImplementedError                                                              
+        else:
+            self.dim_time_emb = 1
+
+        #...Discrete embedding:
+            
+        if self.dim_discrete > 0: 
+            self.dim_discrete_emb = config.dim_discrete_emb
+            self.discrete_embedding = nn.Embedding(config.vocab_size, self.dim_discrete_emb)
+        else:
+            self.dim_discrete_emb = 0
+
+
+        #...Context embedding:
+            
+        if hasattr(config, 'context_embedding') and self.dim_context > 0: 
+            self.dim_context_emb = config.dim_context_emb
+            if config.context_embedding == 'embedding': self.context_embedding = nn.Embedding(config.vocab_size, self.dim_context_emb)
+            elif config.context_embedding == 'linear': self.time_embedding = nn.Linear(self.dim_context, self.dim_context_emb)  
+            else: raise NotImplementedError                                                              
+        else:
+            self.dim_context_emb = self.dim_context if self.dim_context > 0 else 0
+        
+        #...MLP layers:
+                        
+        self.layers = fc_block(dim_input=self.dim_continuous + self.dim_context_emb + self.dim_discrete_emb + self.dim_time_emb, 
+                               dim_output=self.dim_continuous + config.dim_discrete * config.vocab_size, 
+                               dim_hidden=self.dim_hidden, 
+                               num_layers=self.num_layers, 
+                               activation=self.act_fn, 
+                               dropout=self.dropout, 
+                               use_batch_norm=self.use_batch_norm)
+
+
+    def forward(self, t, x=None, k=None, context=None, mask=None):
+        
+        t = t.to(self.device)
+        t = self.time_embedding(t) if hasattr(self, 'time_embedding') else t
+        features = [t]
+
+        if x is not None:
+            x = x.to(self.device)
+            features.append(x)
+
+        if k is not None:
+            k = k.to(self.device)
+            k = self.discrete_embedding(k) if hasattr(self, 'context_embedding') else context
+            features.append(context)
+
+        if context is not None:
+            context = context.to(self.device)
+            context = self.context_embedding(context) if hasattr(self, 'context_embedding') else context
+            features.append(context)
+
+        if mask is not None:
+            mask = mask.to(self.device)
+
+        h = torch.concat(features, dim=1) 
+        h = self.layers(h)
+        continuous = h[:, :self.dim_continuous]   # vector field
+        discrete = h[:, self.dim_continuous:]
+        discrete = discrete.reshape(k.size(0), self.dim_input, self.vocab_size)   # rate logits
+        return continuous, discrete
+
+    def init_weights(self):
+        for layer in self.layers:
+            if isinstance(layer, nn.Linear):
+                nn.init.xavier_uniform_(layer.weight)
+
 class KolmogorovArnoldNetwork(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -84,20 +311,23 @@ class KolmogorovArnoldNetwork(nn.Module):
         self.to(self.device)
 
     def define_deep_models(self, config):
-        self.dim_input = config.DIM_INPUT
-        self.dim_output = config.DIM_INPUT
-        self.dim_hidden = config.DIM_HIDDEN
-        self.dim_context = config.DIM_CONTEXT
-        self.dim_time_emb = config.DIM_TIME_EMB if config.TIME_ENCODING_TYPE is not None else 1
-        self.num_layers = config.NUM_LAYERS
-        self.dropout = config.DROPOUT
-        self.act_fn = get_activation_function(config.ACTIVATION)
+        self.dim_input = config.dim_continuous
+        self.dim_output = config.dim_continuous
+        self.dim_hidden = config.dim_hidden
+        self.dim_context = config.dim_context
+        self.dim_continuous_emb  = config.dim_continuous_emb 
+        self.dim_time_emb = config.dim_time_emb 
+        self.dim_context_emb = config.dim_context_emb
+        self.num_layers = config.num_layers
+        self.dropout = config.dropout
+        self.act_fn = get_activation_function(config.activation)
 
-        if config.TIME_ENCODING_TYPE == 'sinusoidal': self.time_embedding = nn.Sequential(SinusoidalPositionalEncoding(self.dim_time_emb, max_period=10000), nn.Linear(self.dim_time_emb, self.dim_time_emb))
-        elif config.TIME_ENCODING_TYPE == 'randomfourier': self.time_embedding = nn.Sequential(GaussianFourierFeatures(self.dim_time_emb, scale=0.5),  nn.Linear(self.dim_time_emb, self.dim_time_emb))
-        elif config.TIME_ENCODING_TYPE == 'kolmogorov-arnold': self.time_embedding = nn.Sequential(KANLinear(1, self.dim_time_emb), nn.Linear(self.dim_time_emb, self.dim_time_emb))
-        elif config.TIME_ENCODING_TYPE == 'linear': self.time_embedding = nn.Linear(1, self.dim_time_emb)                                                                
-        elif config.TIME_ENCODING_TYPE is None: self.time_embedding = nn.Identity()
+        if config.time_embedding == 'sinusoidal': self.time_embedding = nn.Sequential(SinusoidalPositionalEncoding(self.dim_time_emb, max_period=10000), nn.Linear(self.dim_time_emb, self.dim_time_emb))
+        elif config.time_embedding == 'randomfourier': self.time_embedding = nn.Sequential(GaussianFourierFeatures(self.dim_time_emb, scale=0.5),  nn.Linear(self.dim_time_emb, self.dim_time_emb))
+        elif config.time_embedding == 'kolmogorov-arnold': self.time_embedding = nn.Sequential(KANLinear(1, self.dim_time_emb), nn.Linear(self.dim_time_emb, self.dim_time_emb))
+        elif config.time_embedding == 'linear': self.time_embedding = nn.Linear(1, self.dim_time_emb)                                                                
+        elif config.time_embedding is None: self.dim_time_emb = 1
+        else: raise NotImplementedError
 
         self.kan = kan_block(dim_input=self.dim_input + self.dim_context + self.dim_time_emb, 
                             dim_output=self.dim_output, 
@@ -110,7 +340,7 @@ class KolmogorovArnoldNetwork(nn.Module):
         x = x.to(self.device)
         t = t.to(self.device)
         context = context.to(self.device) if context is not None else None
-        t_emb = self.time_embedding(t)
+        t_emb = self.time_embedding(t) if hasattr(self, 'time_embedding') else t
         h = torch.concat([x, context, t_emb], dim=1) if context is not None else torch.concat([x, t_emb], dim=1) 
         return self.kan(h)
 

@@ -4,43 +4,83 @@ from torch.utils.data import DataLoader, Subset
 from torch.utils.data import Dataset
 from collections import namedtuple
 
-# class AbstractDataClass:
-#     def __init__(self, config: dataclass):
-#         source: torch.Tensor = None
-#         target: torch.Tensor = None
-#         context: torch.Tensor = None
-#         labels: torch.Tensor = None
-#         mask: torch.Tensor = None
-
-#     def get_target(self): pass
-#     def get_source(self): pass
-#     def get_context(self): pass
-#     def get_labels(self): pass
-#     def get_mask(self): pass
 
 class DefineDataSet(Dataset):
     def __init__(self, data):
         self.data = data
-        self.databatch = namedtuple('databatch', ['source_continuous', 
-                                                  'target_continuous', 
-                                                  'source_discrete', 
-                                                  'target_discrete', 
-                                                #   'context', 
-                                                  'mask'])
+
+        self.attributes=[]
+
+        if hasattr(self.data.source, 'continuous'): 
+            self.attributes.append('source_continuous')
+            self.source_continuous = self.data.source.continuous
+
+        if hasattr(self.data.source, 'discrete'): 
+            self.attributes.append('source_discrete')
+            self.source_discrete = self.data.source.discrete
+
+        if hasattr(self.data.source, 'context'): 
+            self.attributes.append('source_context')
+            self.source_context = self.data.source.context
+
+        if hasattr(self.data.source, 'mask'): 
+            self.attributes.append('source_mask')
+            self.source_mask = self.data.source.mask
+
+        if hasattr(self.data.target, 'continuous'): 
+            self.attributes.append('target_continuous')
+            self.target_continuous = self.data.target.continuous
+
+        if hasattr(self.data.target, 'discrete'): 
+            self.attributes.append('target_discrete')
+            self.target_discrete = self.data.target.discrete
+
+        if hasattr(self.data.target, 'context'): 
+            self.attributes.append('target_context')
+            self.target_context = self.data.target.context
+
+        if hasattr(self.data.target, 'mask'): 
+            self.attributes.append('target_mask')
+            self.target_mask = self.data.target.mask
+
+        self.databatch = namedtuple('databatch', self.attributes)
 
     def __getitem__(self, idx):
-        return self.databatch(source_continuous=self.data.source.continuous[idx],
-                              target_continuous=self.data.target.continuous[idx],
-                              source_discrete=self.data.source.discrete[idx],
-                              target_discrete=self.data.target.discrete[idx],
-                            #   context=self.data.target.context[idx],
-                              mask=self.data.target.mask[idx])
+        return self.databatch(*[getattr(self, attr)[idx] for attr in self.attributes])
+
     def __len__(self):
         return len(self.data.target)
     
     def __iter__(self):
         for idx in range(len(self)):
             yield self[idx]
+
+
+# class DefineDataSet(Dataset):
+#     def __init__(self, data):
+#         self.data = data
+#         self.databatch = namedtuple('databatch', ['source_continuous', 
+#                                                   'target_continuous', 
+#                                                   'source_discrete', 
+#                                                   'target_discrete', 
+#                                                   'source_context', 
+#                                                   'target_context', 
+#                                                   'mask'])
+
+#     def __getitem__(self, idx):
+#         return self.databatch(source_continuous=self.data.source.continuous[idx] if hasattr(self.data.source, 'continuous') else [],
+#                               target_continuous=self.data.target.continuous[idx] if hasattr(self.data.target, 'continuous') else [],
+#                               source_discrete=self.data.source.discrete[idx] if hasattr(self.data.source, 'discrete') else [],
+#                               target_discrete=self.data.target.discrete[idx] if hasattr(self.data.target, 'discrete') else [],
+#                               source_context=self.data.source.context[idx] if hasattr(self.data.source, 'context') else [],
+#                               target_context=self.data.target.context[idx] if hasattr(self.data.target, 'context') else [],
+#                               mask=self.data.target.mask[idx] if hasattr(self.data.target, 'mask') else [])
+#     def __len__(self):
+#         return len(self.data.target)
+    
+#     def __iter__(self):
+#         for idx in range(len(self)):
+#             yield self[idx]
 
 class DefineDataloader:
     def __init__(self, 

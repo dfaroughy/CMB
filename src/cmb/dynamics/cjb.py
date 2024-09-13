@@ -17,9 +17,8 @@ class ConditionalJumpBridge:
         """		
         self.k0 = batch.source_discrete
         self.k1 = batch.target_discrete
-        self.x1	= batch.target_continuous if hasattr(batch, 'target_continuous') else None
-        self.context = batch.context if hasattr(batch, 'context') else None
-        self.mask = batch.mask if hasattr(batch, 'mask') else None
+        self.context = None
+        self.mask = None
 
     def sample_time(self):
         """ sample time: t ~ U[0,1]
@@ -29,6 +28,11 @@ class ConditionalJumpBridge:
 
     def sample_bridge(self):
         k = torch.arange(0, self.vocab_size)
+
+        if self.k0.dim() == 1:
+            self.k0 = self.k0.unsqueeze(1)  
+            self.k1 = self.k1.unsqueeze(1)
+
         k = k[None, None, :].repeat((self.k0.size(0), self.k0.size(1), 1)).float()
         k = k.to(self.k0.device)
         transition_probs = self.telegram_bridge_probability(k , self.k1, self.k0, self.t.squeeze())
@@ -38,7 +42,7 @@ class ConditionalJumpBridge:
         self.sample_coupling(batch)
         self.sample_time() 
         self.sample_bridge()
-        logits = model(t=self.t, k=self.bridge, x=self.x1, context=self.context, mask=self.mask)
+        logits = model(t=self.t, k=self.bridge, context=self.context, mask=self.mask)
         logits = logits.reshape(-1, self.vocab_size)
         targets = self.k1.reshape(-1).long()
         targets = targets.to(logits.device)
