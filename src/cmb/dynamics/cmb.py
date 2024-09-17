@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from cmb.dynamics.utils import right_shape, right_time_size
 from torch.nn import MSELoss, CrossEntropyLoss
 from torch.distributions import Categorical 
+from cmb.dynamics.utils import OTPlanSampler
 
 
 class ConditionalMarkovBridge :
@@ -33,16 +34,17 @@ class ConditionalMarkovBridge :
         t = torch.rand(self.x1.shape[0], device=self.x1.device).type_as(self.x1)
         self.t = self.reshape_time(t, self.x1)
 
-    def sample_bridge(self):
+    def sample_continuous_bridge(self):
         """ sample conditional bridge: x_t ~ p_t(x|x_0, x_1)
         """
-        #...continous bridge:
         mean = self.t * self.x1 + (1. - self.t) * self.x0
         std = self.config.sigma
         self.continuous_bridge = mean + std * torch.randn_like(mean)
 	
-
-        #...discrete bridge:
+    def sample_discrete_bridge(self):
+        """ sample conditional bridge: x_t ~ p_t(x|x_0, x_1)
+        """
+        
         k = torch.arange(0, self.vocab_size)
 
         # Ensure k0 has at least 2 dimensions
@@ -54,9 +56,6 @@ class ConditionalMarkovBridge :
         # Adjust the repeat based on the actual dimensions of k0 and k1
         k = k[None, None, :].repeat(self.k0.size(0), self.k0.size(1), 1).float()
         k = k.to(self.k0.device)
-
-        # k = k[None, None, :].repeat((self.k0.size(0), self.k0.size(1), 1)).float()
-        # k = k.to(self.k0.device)
         transition_probs = self.telegram_bridge_probability(k, self.k1, self.k0, self.t.squeeze())
         self.discrete_bridge = Categorical(transition_probs).sample().to(self.k1.device)
 
@@ -73,10 +72,10 @@ class ConditionalMarkovBridge :
         """
         self.sample_coupling(batch)
         self.sample_time() 
-        self.sample_bridge()
+        self.sample_continuous_bridge()
+        self.sample_discrete_bridge()
         self.get_drift()
-
-        vt, logits = model(t=self.t, x=self.continuous_bridge, k=self.discrete_bridge, context=self.context, mask=self.mask)
+        vt, logits = model(t=self.t, x=self.continuous_bridge, k=self.discrete_bridge, context=self.context, mask=self.mask, output_rates=False)
         logits = logits.reshape(-1, self.vocab_size)
         targets = self.k1.reshape(-1).long()
         targets = targets.to(logits.device)
@@ -125,3 +124,47 @@ class ConditionalMarkovBridge :
         p_x0_to_x1 = self.multivariate_telegram_conditional(x1, x0, t=1., t0=0.)
         return (p_x_to_x1 * p_x0_to_x) / p_x0_to_x1
 
+
+class OTCMB(ConditionalMarkovBridge):
+    def sample_coupling(self, batch):
+        OT = OTPlanSampler()	
+        self.x0 = batch.source_continuous
+        self.x1 = batch.target_continuous
+        self.k0 = batch.source_discrete
+        self.k1 = batch.target_discrete
+        pi = OT.get_map(self.x0, self.x1)
+        idx_0, idx_1 = OT.sample_map(pi, self.x0.shape[0], replace=False)
+        self.x0, self.x1 = self.x0[idx_0], self.x1[idx_1]
+        self.k0, self.k1 = self.k0[idx_0], self.k1[idx_1]
+        self.context = batch.context if hasattr(batch, 'context') else None
+        self.mask = batch.mask if hasattr(batch, 'mask') else None
+
+
+class SBCMB(ConditionalMarkovBridge):
+    def sample_coupling(self, batch):
+        regulator = 2 * self.config.sigma**2
+        SB = OTPlanSampler(reg=regulator)	
+        self.x0 = batch.source_continuous
+        self.x1 = batch.target_continuous
+        self.k0 = batch.source_discrete
+        self.k1 = batch.target_discrete
+        pi = SB.get_map(self.x0, self.x1)
+        idx_0, idx_1 = SB.sample_map(pi, self.x0.shape[0], replace=False)
+        self.x0, self.x1 = self.x0[idx_0], self.x1[idx_1]
+        self.k0, self.k1 = self.k0[idx_0], self.k1[idx_1]
+        self.context = batch.context if hasattr(batch, 'context') else None
+        self.mask = batch.mask if hasattr(batch, 'mask') else None
+
+    def sample_continuous_bridge(self):
+        self.mean = self.t * self.x1 + (1 - self.t) * self.x0
+        std = self.config.sigma * torch.sqrt(self.t * (1 - self.t))
+        self.continuous_bridge = self.mean + std * torch.randn_like(self.mean)
+		
+    def get_drift(self):
+        """ conditional drift u_t(x|x_0,x_1)
+        """
+        A = (1 - 2 * self.t) / ( self.t * (1 - self.t))
+        B = self.t**2 / ( self.t * (1 - self.t))
+        C = -1 * (1 - self.t)**2 / ( self.t * (1 - self.t))
+
+        self.drift = A * self.continuous_bridge + B * self.x1 + C * self.x0
