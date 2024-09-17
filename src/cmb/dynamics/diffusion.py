@@ -2,7 +2,7 @@ import torch
 from dataclasses import dataclass
 from cmb.dynamics.utils import OTPlanSampler
 
-class ConditionalFlowMatching :
+class Diffusion:
 	''' Conditional Flow Matching base class
 	'''
 	def __init__(self, config: dataclass):
@@ -24,7 +24,7 @@ class ConditionalFlowMatching :
 		self.t = self.reshape_time(t, self.x1)
 
 	def sample_bridge(self):
-		""" sample conditional bridge: x_t ~ p_t(x|x_0, x_1)
+		""" sample brownian bridge: x_t ~ p_t(x|x_0, x_1)
 		"""
 		mean = self.t * self.x1 + (1. - self.t) * self.x0
 		std = self.config.sigma
