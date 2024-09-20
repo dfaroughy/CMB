@@ -3,8 +3,8 @@ import matplotlib.pyplot as plt
 
 from cmb.configs.experiments import Configs
 
-from cmb.data.jetclass import CouplingData
-from cmb.data.jetclass import ParticleClouds
+from cmb.datasets.jetclass import CouplingData
+from cmb.datasets.jetclass import ParticleClouds
 
 from cmb.dynamics.cfm import ConditionalFlowMatching
 from cmb.models.architectures.epic import EPiC
