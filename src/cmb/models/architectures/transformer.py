@@ -30,7 +30,6 @@ class ParticleTransformer(nn.Module):
         t = t.to(self.device) # time
         x = x.to(self.device) # continuous feature (b, n, dim_continuous) 
         k = k.to(self.device) if k is not None else None  # discrete feature (b, n, dim_discrete)          
-        mask = torch.ones_like(x[...,0]).unsqueeze(-1) if mask is None else mask.unsqueeze(-1) 
         mask = mask.to(self.device)    
         h = self.particle_embedding(t=t, x=x, mask=mask)
         for block in self.particle_attention_blocks:

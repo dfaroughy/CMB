@@ -71,58 +71,132 @@ class Validation_Step(nn.Module):
             if self.patience >= early_stopping: terminate = True
         return terminate, improved
 
+import torch
+from torch.optim import Optimizer as TorchOptimizer
+import inspect
 
 class Optimizer:
-
     """
     Custom optimizer class with support for gradient clipping.
     
     Attributes:
-    - configs: Configuration dataclass containing optimizer configurations.
+    - config: Configuration object containing optimizer configurations.
     """
-
-    def __init__(self, config: dataclass):
+    def __init__(self, config):
         self.config = config
-        self.optimizer = config.optimizer
-        self.lr = config.lr 
-        self.weight_decay = config.weight_decay
-        self.betas = config.optimizer_betas
-        self.eps = config.optimizer_eps
-        self.amsgrad = config.optimizer_amsgrad
-        self.gradient_clip = config.gradient_clip 
-
-    def get_optimizer(self, parameters):
-
-        optim_args = {'lr': self.lr, 'weight_decay': self.weight_decay}
-
-        if self.optimizer == 'Adam':
-            if hasattr(self.config, 'betas'): optim_args['betas'] = self.betas
-            if hasattr(self.config, 'eps'): optim_args['eps'] = self.eps
-            if hasattr(self.config, 'amsgrad'): optim_args['amsgrad'] = self.amsgrad
-            return torch.optim.Adam(parameters, **optim_args)
-        
-        elif self.optimizer == 'AdamW':
-            if hasattr(self.config, 'betas'): optim_args['betas'] = self.betas
-            if hasattr(self.config, 'eps'): optim_args['eps'] = self.eps
-            if hasattr(self.config, 'amsgrad'): optim_args['amsgrad'] = self.amsgrad
-            return torch.optim.AdamW(parameters, **optim_args)
-        
-        else:
-            raise ValueError(f"Unsupported optimizer: {self.optimizer}")
-        
-    def clip_gradients(self, optimizer):
-        if self.gradient_clip: torch.nn.utils.clip_grad_norm_(optimizer.param_groups[0]['params'], self.gradient_clip)
 
     def __call__(self, parameters):
-        optimizer = self.get_optimizer(parameters)
-        #...override the optimizer.step() to include gradient clipping
+        # Convert the config to a dictionary
+        config_dict = self.config.to_dict()
+
+        # Get the optimizer name dynamically
+        optimizer_name = self._get_optimizer_name(config_dict)
+
+        # Get the optimizer class from torch.optim
+        optimizer_cls = self._get_optimizer_class(optimizer_name)
+
+        # Get valid arguments for the optimizer constructor
+        valid_args = self._get_valid_args(optimizer_cls)
+
+        # Filter config_dict to include only valid arguments
+        optimizer_args = {k: v for k, v in config_dict.items() if k in valid_args}
+
+        # Extract gradient clipping value if present
+        self.gradient_clip = config_dict.get('gradient_clip', None)
+
+        # Create the optimizer instance
+        optimizer = optimizer_cls(parameters, **optimizer_args)
+
+        # Override optimizer.step() to include gradient clipping
+        optimizer = self._wrap_optimizer_step(optimizer)
+
+        return optimizer
+
+    def _wrap_optimizer_step(self, optimizer):
+        # Original optimizer step function
         original_step = optimizer.step
 
         def step_with_clipping(closure=None):
-            self.clip_gradients(optimizer)
-            original_step(closure)          
+            if self.gradient_clip is not None:
+                torch.nn.utils.clip_grad_norm_(optimizer.param_groups[0]['params'], self.gradient_clip)
+            original_step(closure)
         optimizer.step = step_with_clipping
         return optimizer
+
+    def _get_optimizer_name(self, config_dict):
+        # Get a list of all optimizer class names in torch.optim
+        optimizer_names = [cls_name for cls_name in dir(torch.optim) if isinstance(getattr(torch.optim, cls_name), type)]
+        # Find keys in config_dict that are not valid optimizer arguments
+        possible_names = set(config_dict.keys()) - set(self._get_all_optimizer_args())
+
+        for key in possible_names:
+            value = config_dict[key]
+            if isinstance(value, str) and value in optimizer_names:
+                return value
+            elif key in optimizer_names:
+                return key
+        raise ValueError("Optimizer name not found in configuration. Please specify a valid optimizer name.")
+
+    def _get_optimizer_class(self, optimizer_name):
+        if hasattr(torch.optim, optimizer_name):
+            return getattr(torch.optim, optimizer_name)
+        else:
+            raise ValueError(f"Unsupported optimizer: {optimizer_name}")
+
+    def _get_valid_args(self, optimizer_cls):
+        # Get the signature of the optimizer class
+        signature = inspect.signature(optimizer_cls.__init__)
+        # Exclude 'self' and 'params' from the parameters
+        valid_args = [p.name for p in signature.parameters.values() if p.name not in ['self', 'params']]
+        return valid_args
+
+    def _get_all_optimizer_args(self):
+        # Get all valid arguments from all optimizers in torch.optim
+        all_args = set()
+        for attr_name in dir(torch.optim):
+            attr = getattr(torch.optim, attr_name)
+            if inspect.isclass(attr) and issubclass(attr, TorchOptimizer):
+                args = self._get_valid_args(attr)
+                all_args.update(args)
+        return all_args
+    
+
+# class Optimizer:
+
+#     """
+#     Custom optimizer class with support for gradient clipping.
+    
+#     Attributes:
+#     - configs: Configuration dataclass containing optimizer configurations.
+#     """
+
+#     def __init__(self, config: dataclass):
+#         self.config = config
+
+#     def get_optimizer(self, parameters):
+
+#         args = self.config.to_dict()
+
+#         if self.config.name == 'Adam':
+#             return torch.optim.Adam(parameters, **args)
+#         elif self.config.name == 'AdamW':
+#             return torch.optim.AdamW(parameters, **args)
+#         else:
+#             raise ValueError(f"Unsupported optimizer: {self.optimizer}")
+        
+#     def clip_gradients(self, optimizer):
+#         if self.config.gradient_clip: torch.nn.utils.clip_grad_norm_(optimizer.param_groups[0]['params'], self.config.gradient_clip)
+
+#     def __call__(self, parameters):
+#         optimizer = self.get_optimizer(parameters)
+#         #...override the optimizer.step() to include gradient clipping
+#         original_step = optimizer.step
+
+#         def step_with_clipping(closure=None):
+#             self.clip_gradients(optimizer)
+#             original_step(closure)          
+#         optimizer.step = step_with_clipping
+#         return optimizer
 
 class Scheduler:
 
@@ -134,17 +208,14 @@ class Scheduler:
     """
 
     def __init__(self, config: dataclass):
-        self.scheduler = config.scheduler
-        self.T_max = config.scheduler_t_max
-        self.eta_min = config.scheduler_eta_min
-        self.gamma = config.scheduler_gamma
-        self.step_size = config.scheduler_step_size
+        self.config = config 
 
     def get_scheduler(self, optimizer):
-        if self.scheduler == 'CosineAnnealingLR': return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=self.T_max, eta_min=self.eta_min)
-        elif self.scheduler == 'StepLR': return torch.optim.lr_scheduler.StepLR(optimizer, step_size=self.step_size, gamma=self.gamma)
-        elif self.scheduler == 'ExponentialLR': return torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=self.gamma)
-        elif self.scheduler is None: return NoScheduler(optimizer)
+        args = self.config.to_dict()
+        if self.config.name == 'CosineAnnealingLR': return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, **args)
+        elif self.config.name == 'StepLR': return torch.optim.lr_scheduler.StepLR(optimizer, **args)
+        elif self.config.name == 'ExponentialLR': return torch.optim.lr_scheduler.ExponentialLR(optimizer, **args)
+        elif self.config.name is None: return NoScheduler(optimizer)
         else: raise ValueError(f"Unsupported scheduler: {self.scheduler}")
 
     def __call__(self, optimizer):
@@ -158,7 +229,7 @@ class NoScheduler:
 class Logger:
     ''' Logging handler for training and validation.
     '''
-    def __init__(self, configs: dataclass, path: Path):
+    def __init__(self, path: Path):
         self.path = path
         self.fh = None  
         self.ch = None 
@@ -193,122 +264,4 @@ class Logger:
         if self.ch:
             self.ch.close()
             self.console.removeHandler(self.ch)
-
-
-#----------------------------------------------
-# utils for pipelines            
-#----------------------------------------------
-
-from torch.nn.functional import softmax
-
-# class ContextWrapper(torch.nn.Module):
-#     """ Wraps model to torchdyn compatible format.
-#     """
-#     def __init__(self, net, context=None):
-#         super().__init__()
-#         self.nn = net
-#         self.context = context
-
-#     def forward(self, t, x):
-#         t = t.repeat(x.shape[0])
-#         t = self.reshape_time_like(t, x)
-#         return self.nn(t=t, x=x, context=self.context)
-
-#     def reshape_time_like(self, t, x):
-#         if isinstance(t, (float, int)): return t
-#         else: return t.reshape(-1, *([1] * (x.dim() - 1)))
-
-
-class ContextWrapper(torch.nn.Module):
-    """ Wraps model to torchdyn compatible format.
-    """
-    def __init__(self, net, context=None):
-        super().__init__()
-        self.nn = net
-        self.context = context
-
-    def forward(self, t, x, k):
-        if x is not None: 
-            t = t.repeat(x.shape[0])
-            t = self.reshape_time_like(t, x)
-        else: 
-            t = t.repeat(k.shape[0])
-            t = self.reshape_time_like(t, k)
-        return self.nn(t=t, x=x, k=k, context=self.context)
-
-    def reshape_time_like(self, t, tensor):
-        if isinstance(t, (float, int)): return t
-        else: return t.reshape(-1, *([1] * (tensor.dim() - 1)))
-
-
-class EulerSolver:
-    def __init__(self, vector_field, device):
-        self.vector_field = vector_field
-        self.device = device
-
-    def trajectory(self, t_span, x, k=None):
-        time_steps = len(t_span)
-        dt = (t_span[-1] - t_span[0]) / (time_steps - 1)
-        trajectory = [x]
-
-        for i in range(1, time_steps):
-            t = t_span[i-1]
-            x = x + dt * self.vector_field(t, x=x, k=k).to(self.device)
-            trajectory.append(x)
-
-        return torch.stack(trajectory)
-
-
-class TauLeapingSolver:
-    def __init__(self, transition_rate, config):
-        self.transition_rate = transition_rate
-        self.device = config.device
-        self.dim = config.dim_input
-        self.vocab_size = config.vocab_size 
-
-    def simulate(self, t_span, k, x=None):
-        time_steps = len(t_span)
-        tau = (t_span[-1] - t_span[0]) / (time_steps - 1)
-        trajectory = [k]
-
-        for i in range(1, time_steps):
-            t = t_span[i-1]
-    
-            current_state = k.clone()
-            rates = self.transition_rate(t, k=current_state, x=x).to(self.device)
-            max_rate = torch.max(rates, dim=2)[1]
-
-            jumps = torch.poisson(rates * tau).to(self.device) 
-            mask =  torch.sum(jumps, dim=-1).type_as(current_state) <= 1
-            diff = torch.arange(self.vocab_size, device=self.device).view(1, 1, self.vocab_size) - k[:,:, None]
-            net_jumps = torch.sum(jumps * diff, dim=-1).type_as(current_state)
-            
-            k = current_state + net_jumps * mask
-            k = torch.clamp(k, min=0, max=self.vocab_size-1)            
-            trajectory.append(k.clone())
-
-        return torch.stack(trajectory), max_rate
-
-class TransitionRateModel(torch.nn.Module):
-    def __init__(self, model, config):
-        super().__init__()
-        self.model = model # model should output logits
-        self.vocab_size = config.vocab_size 
-        self.config = config
-        self.gamma = config.gamma
-        self.time_epsilon = config.time_eps
-
-    def forward(self, t, k, x=None, context=None):
-        t = t.squeeze()
-        if len(k.shape) != 2:
-            k = k.reshape(k.size(0),-1)
-        logits = self.model(t, k=k, x=x, context=context)
-        t1 = 1. - self.time_epsilon
-        beta_integral = (t1 - t) * self.gamma
-        wt = torch.exp(-self.vocab_size * beta_integral)
-        A, B, C = 1. , (wt * self.vocab_size)/(1. - wt) , wt
-        qx = softmax(logits, dim=2)
-        qy = torch.gather(qx, 2, k.long().unsqueeze(2))
-        rate = A + B[:, None, None] * qx + C[:, None, None] * qy
-        return rate
 

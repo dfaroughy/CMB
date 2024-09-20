@@ -1,0 +1,100 @@
+#...General parameters
+general:
+  workdir: ../../results
+
+#...Data parameters
+data:
+  dataset: JetClass
+  target:
+    name: tops
+    num_jets: null
+    path:
+      - /home/df630/CMB/data/JetClass/TTBar_000.root
+      # - /home/df630/CMB/data/JetClass/TTBar_001.root
+      # - /home/df630/CMB/data/JetClass/TTBar_002.root
+      # - /home/df630/CMB/data/JetClass/TTBar_003.root
+  source: 
+    name: beta
+    concentration: [.1, 10.0]
+    num_jets: null
+    path: null
+  min_num_particles: 0
+  max_num_particles: 128
+  dim:
+    features:
+      continuous: 3
+      discrete: 1
+      vocab_size: 8 # e+ e- mu+ mu- h+ h- h0 gamma
+    context:
+      continuous: 0
+      discrete: 0
+      vocab_size: 0
+#...Model parameters
+
+model: 
+  name: 'EPiC'
+  num_blocks: 8
+  dim:
+    emb:
+      time: 16
+      features:
+        continuous: 0
+        discrete: 0
+      context:
+        continuous: 0
+        discrete: 0
+    hidden: 
+      local: 256
+      glob: 10
+  embed_type:
+    time: sinusoidal
+    features: 
+      continuous: null
+      discrete: null
+    context:
+      continuous: null
+      discrete: null
+  skip_connection: true
+  dropout: 0.1
+  activation: GELU
+
+#...Training parameters
+
+train:
+  device: cuda:0
+  multi_gpu: false
+  batch_size: 512
+  data_split_frac: [0.8, 0.2, 0.0]  # train / val / test
+  epochs: 100
+  early_stopping: null
+  min_epochs: null
+  print_epochs: null
+  num_workers: 0
+  pin_memory: false
+  optimizer:
+    name: Adam
+    lr: 0.0002
+    weight_decay: 0.0
+    betas: [0.9, 0.999]
+    eps: 1.e-8
+    amsgrad: false
+    gradient_clip: null
+  scheduler: 
+    name: null
+    scheduler_t_max: null
+    scheduler_eta_min: null
+    scheduler_gamma: null
+    scheduler_step_size: null
+
+#...Dynamics parameters
+
+dynamics: 
+  name: ConditionalFlowMatching
+  sigma: 0.001
+
+#...Pipeline generation parameters
+
+pipeline:
+  method: EulerSolver
+  num_timesteps: 400
+  time_eps: 0.001

@@ -7,15 +7,16 @@ class ConditionalFlowMatching :
 	'''
 	def __init__(self, config: dataclass):
 		self.config = config
-		self.loss_fn = torch.nn.MSELoss(reduction='mean')
+		self.loss_fn = torch.nn.MSELoss(reduction='sum')
 
 	def sample_coupling(self, batch):
 		""" conditional variable z = (x_0, x1) ~ pi(x_0, x_1)
 		"""		
 		self.x0 = batch.source_continuous
 		self.x1 = batch.target_continuous
-		self.context = batch.target_context if hasattr(batch, 'target_context') else None
-		self.mask = batch.target_mask if hasattr(batch, 'target_mask') else None
+		self.context_continuous = batch.target_context_continuous if hasattr(batch, 'target_context_continuous') else None
+		self.context_discrete = batch.target_context_discrete if hasattr(batch, 'target_context_discrete') else None
+		self.mask = batch.target_mask if hasattr(batch, 'target_mask') else torch.ones_like(self.x0[..., 0]).unsqueeze(-1)
 
 	def sample_time(self):
 		""" sample time: t ~ U[0,1]
@@ -37,6 +38,7 @@ class ConditionalFlowMatching :
 		B = 1.
 		C = -1.
 		self.drift = A * self.bridge + B * self.x1 + C * self.x0
+		self.drift = self.drift * self.mask
 
 	def loss(self, model, batch):
 		""" conditional flow-mathcing MSE loss
@@ -45,10 +47,10 @@ class ConditionalFlowMatching :
 		self.sample_time() 
 		self.sample_bridge()
 		self.get_drift()
-		vt = model(t=self.t, x=self.bridge, context=self.context, mask=self.mask)
+		vt = model(t=self.t, x=self.bridge, context_continuous=self.context_continuous, context_discrete=self.context_discrete, mask=self.mask)
 		ut = self.drift.to(vt.device)
 		loss = self.loss_fn(vt, ut)
-		return loss
+		return loss / self.mask.sum()
 
 	def reshape_time(self, t, x):
 		if isinstance(t, (float, int)): return t
@@ -59,7 +61,8 @@ class OTCFM(ConditionalFlowMatching ):
 	def sample_coupling(self, batch):
 		OT = OTPlanSampler()	
 		self.x0, self.x1 = OT.sample_plan(batch.source_continuous, batch.target_continuous)	
-		self.context = batch.context if hasattr(batch, 'context') else None
+		self.context_continuous = batch.target_context if hasattr(batch, 'target_context_continuous') else None
+		self.context_discrete = batch.target_discrete if hasattr(batch, 'target_context_discrete') else None
 		self.mask = batch.mask if hasattr(batch, 'mask') else None
 
 class SBCFM(ConditionalFlowMatching):
@@ -67,7 +70,8 @@ class SBCFM(ConditionalFlowMatching):
 		regulator = 2 * self.config.sigma**2
 		SB = OTPlanSampler(reg=regulator)
 		self.x0, self.x1 = SB.sample_plan(batch.source_continuous, batch.target_continuous)	
-		self.context = batch.context if hasattr(batch, 'context') else None
+		self.context_continuous = batch.target_context if hasattr(batch, 'target_context_continuous') else None
+		self.context_discrete = batch.target_discrete if hasattr(batch, 'target_context_discrete') else None
 		self.mask = batch.mask if hasattr(batch, 'mask') else None
 
 	def sample_bridge(self):

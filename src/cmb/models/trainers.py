@@ -24,45 +24,53 @@ class CMBTrainer:
     - config: Configuration dataclass containing training configurations.
     """
 
-    def __init__(self, dynamics, model, dataclass):
-        #...config:
-        self.config = dataclass.config
+    def __init__(self, config, dynamics, model, dataclass):
+
+        self.config = config
+        self.workdir = Path(config.general.workdir) / Path(config.data.dataset) / Path(config.general.experiment_name)
         self.dynamics = dynamics
-        self.model = model.to(torch.device(self.config.device))
-        self.dataloader = DefineDataloader(dataclass)
-        self.workdir = Path(self.config.workdir)
-        self.epochs = self.config.epochs
-        self.early_stopping = self.config.epochs if self.config.early_stopping is None else self.config.early_stopping
-        self.min_epochs = 0 if self.config.min_epochs is None else self.config.min_epochs
-        self.print_epochs = 1 if self.config.print_epochs is None else self.config.print_epochs
+        self.model = model
+        self.dataloader = DefineDataloader(config, dataclass)
+
+        #...train config:
+
+        self.early_stopping = config.train.epochs if config.train.early_stopping is None else config.train.early_stopping
+        self.min_epochs = 0 if config.train.min_epochs is None else config.train.min_epochs
+        self.print_epochs = 1 if config.train.print_epochs is None else config.train.print_epochs
 
         #...logger & tensorboard:
-        os.makedirs(self.workdir/'tensorboard', exist_ok=True)
-        self.writer = SummaryWriter(self.workdir/'tensorboard')  
-        self.logger = Logger(self.config, self.workdir/'training.log')
+
+        os.makedirs(self.workdir, exist_ok=True)
+        self.logger = Logger(self.workdir/'training.log')
+        self.logger.logfile.info("Training configurations:")
+        self.config.log_config(self.logger)  # Log the nested configurations
+
+        #...load model on device:
+
+        self.model = self.model.to(torch.device(config.train.device))
 
     def train(self):
         train = Train_Step()
         valid = Validation_Step()
-        optimizer = Optimizer(self.config)(self.model.parameters())
-        scheduler = Scheduler(self.config)(optimizer)
+        optimizer = Optimizer(self.config.train.optimizer)(self.model.parameters())
+        scheduler = Scheduler(self.config.train.scheduler)(optimizer)
 
         #...logging
-        self.logger.logfile.info("Training configurations:")
-        for field in fields(self.config): self.logger.logfile.info(f"{field.name}: {getattr(self.config, field.name)}")
         self.logger.logfile_and_console('number of training parameters: {}'.format(sum(p.numel() for p in self.model.parameters())))
+        self.logger.logfile.info(f"Model architecture:\n{self.model}")
         self.logger.logfile_and_console("start training...")
 
         #...train
 
-        if self.config.multi_gpu and torch.cuda.device_count() > 1:
+        if self.config.train.multi_gpu and torch.cuda.device_count() > 1:
             print("INFO: using ", torch.cuda.device_count(), "GPUs...")
             self.model = DataParallel(self.model)
 
-        for epoch in tqdm(range(self.epochs), desc="epochs"):
+        for epoch in tqdm(range(self.config.train.epochs), desc="epochs"):
             train.update(model=self.model, loss_fn=self.dynamics.loss, dataloader=self.dataloader.train, optimizer=optimizer) 
             valid.update(model=self.model, loss_fn=self.dynamics.loss, dataloader=self.dataloader.valid)
-            TERMINATE, IMPROVED = valid.checkpoint(min_epochs=self.min_epochs, early_stopping=self.early_stopping)
+            TERMINATE, IMPROVED = valid.checkpoint(min_epochs=self.min_epochs, 
+                                                   early_stopping=self.early_stopping)
             scheduler.step() 
             self._log_losses(train, valid, epoch)
             self._save_best_epoch_model(IMPROVED)
@@ -76,21 +84,20 @@ class CMBTrainer:
         self._save_best_epoch_model(not bool(self.dataloader.valid)) # best = last epoch if there is no validation, needed as a placeholder for pipeline
         self.plot_loss(valid_loss=valid.losses, train_loss=train.losses)
         self.logger.close()
-        self.writer.close() 
         
     def load(self, path: str=None, model: str=None):
         path = self.workdir if path is None else Path(path)
         if model is None:
             self.best_epoch_model = type(self.model)(self.config)
             self.last_epoch_model = type(self.model)(self.config)
-            self.best_epoch_model.load_state_dict(torch.load(path/'best_epoch_model.pth', map_location=(torch.device('cpu') if self.config.device=='cpu' else None)))
-            self.last_epoch_model.load_state_dict(torch.load(path/'last_epoch_model.pth', map_location=(torch.device('cpu') if self.config.device=='cpu' else None)))
+            self.best_epoch_model.load_state_dict(torch.load(path/'best_epoch_model.pth', map_location=(torch.device('cpu') if self.config.train.device=='cpu' else None)))
+            self.last_epoch_model.load_state_dict(torch.load(path/'last_epoch_model.pth', map_location=(torch.device('cpu') if self.config.train.device=='cpu' else None)))
         elif model == 'best':
             self.best_epoch_model = type(self.model)(self.config)
-            self.best_epoch_model.load_state_dict(torch.load(path/'best_epoch_model.pth', map_location=(torch.device('cpu') if self.config.device=='cpu' else None)))
+            self.best_epoch_model.load_state_dict(torch.load(path/'best_epoch_model.pth', map_location=(torch.device('cpu') if self.config.train.device=='cpu' else None)))
         elif model == 'last':
             self.last_epoch_model = type(self.model)(self.config)
-            self.last_epoch_model.load_state_dict(torch.load(path/'last_epoch_model.pth', map_location=(torch.device('cpu') if self.config.device=='cpu' else None)))
+            self.last_epoch_model.load_state_dict(torch.load(path/'last_epoch_model.pth', map_location=(torch.device('cpu') if self.config.train.device=='cpu' else None)))
         else: raise ValueError("which_model must be either 'best', 'last', or None")
 
     def _save_best_epoch_model(self, improved):
@@ -104,8 +111,6 @@ class CMBTrainer:
         self.last_epoch_model = deepcopy(self.model)
 
     def _log_losses(self, train, valid, epoch):
-        self.writer.add_scalar('Loss/train', train.loss, epoch)
-        self.writer.add_scalar('Loss/valid', valid.loss, epoch)
         message = "\tEpoch: {}, train loss: {}, valid loss: {}  (min valid loss: {})".format(epoch, train.loss, valid.loss, valid.loss_min)
         self.logger.logfile.info(message)
         if epoch % self.print_epochs == 1:            
