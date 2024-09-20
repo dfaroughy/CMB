@@ -1,3 +1,6 @@
 torch
 torchdyn
 torchcfm
+awkward
+fastjet
+uproot

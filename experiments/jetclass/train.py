@@ -31,14 +31,13 @@ pipeline.generate_samples(source_continuous=test.source.continuous[:num_gen_jets
 
 #...store results:
 
-
 generated = torch.cat([pipeline.paths[-1], test.source.mask[:num_gen_jets]], dim=-1)
 jets_generated = ParticleClouds(generated) 
 
 n=100
 fig, ax = plt.subplots(1,3, figsize=(6,2))
 jets.source.display_cloud(idx=n, scale_marker=100, ax=ax[0], color='darkblue')
-jets_generated.display_cloud(idx=n, scale_marker=100, ax=ax[1], color='gold')
+jets_generated.display_cloud(idx=n, scale_marker=100, ax=ax[1], color='purple')
 jets.target.display_cloud(idx=n, scale_marker=100, ax=ax[2], color='darkred')
 plt.tight_layout()
 plt.savefig(model.workdir / 'particle_discplays.png')
@@ -73,4 +72,4 @@ jets.target.histplot('phi_rel', idx=20, binrange=binrange_2, binwidth=binwidth_2
 
 ax[0,0].legend()
 plt.tight_layout()
-plt.savefig(generative_model.workdir / 'particle_features.png')
+plt.savefig(model.workdir / 'particle_features.png')
