@@ -56,42 +56,17 @@ class DefineDataSet(Dataset):
             yield self[idx]
 
 
-# class DefineDataSet(Dataset):
-#     def __init__(self, data):
-#         self.data = data
-#         self.databatch = namedtuple('databatch', ['source_continuous', 
-#                                                   'target_continuous', 
-#                                                   'source_discrete', 
-#                                                   'target_discrete', 
-#                                                   'source_context', 
-#                                                   'target_context', 
-#                                                   'mask'])
-
-#     def __getitem__(self, idx):
-#         return self.databatch(source_continuous=self.data.source.continuous[idx] if hasattr(self.data.source, 'continuous') else [],
-#                               target_continuous=self.data.target.continuous[idx] if hasattr(self.data.target, 'continuous') else [],
-#                               source_discrete=self.data.source.discrete[idx] if hasattr(self.data.source, 'discrete') else [],
-#                               target_discrete=self.data.target.discrete[idx] if hasattr(self.data.target, 'discrete') else [],
-#                               source_context=self.data.source.context[idx] if hasattr(self.data.source, 'context') else [],
-#                               target_context=self.data.target.context[idx] if hasattr(self.data.target, 'context') else [],
-#                               mask=self.data.target.mask[idx] if hasattr(self.data.target, 'mask') else [])
-#     def __len__(self):
-#         return len(self.data.target)
-    
-#     def __iter__(self):
-#         for idx in range(len(self)):
-#             yield self[idx]
-
 class DefineDataloader:
     def __init__(self, 
+                 config,
                  dataclass, 
                  batch_size: int=None, 
                  data_split_frac: tuple=None): 
         self.dataclass = dataclass
-        self.config = dataclass.config       
+        self.config = config       
         self.dataset = DefineDataSet(dataclass) 
-        self.data_split = self.config.data_split_frac if data_split_frac is None else data_split_frac
-        self.batch_size = self.config.batch_size if batch_size is None else batch_size
+        self.data_split = self.config.train.data_split_frac if data_split_frac is None else data_split_frac
+        self.batch_size = self.config.train.batch_size if batch_size is None else batch_size
         self.dataloader()
 
     def train_val_test_split(self, shuffle=False):

@@ -3,3 +3,4 @@ torchdyn
 torchcfm
 tensorboard
 pot
+nltk
