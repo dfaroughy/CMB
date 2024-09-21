@@ -3,7 +3,6 @@ import torch
 import torch.nn.functional as F
 import torch.nn as nn
 
-
 def get_activation_function(name: str='ReLU'):
     if name is not None:
         activation_functions = {"ReLU": nn.ReLU(),
@@ -28,7 +27,7 @@ def get_activation_function(name: str='ReLU'):
     else: return None
 
 
-def fc_block(dim_input, dim_output, dim_hidden, num_layers, activation, dropout, use_batch_norm=False):
+def MLP(dim_input, dim_output, dim_hidden, num_layers, activation, dropout, use_batch_norm=False):
 
   BatchNorm = nn.BatchNorm1d if use_batch_norm else nn.Identity
 
@@ -56,6 +55,8 @@ def kan_block(dim_input, dim_output, dim_hidden, num_layers, dropout, use_batch_
 
   layers.append(nn.Linear(dim_hidden, dim_output))
   return nn.Sequential(*layers)
+
+
 
 class MultiHeadAttention(nn.Module):
     def __init__(self, dim_input, dim_output, dim_hidden=128, num_heads=4, dropout=0.0, attention_embedding='linear'):
@@ -125,6 +126,135 @@ class MultiHeadAttention(nn.Module):
 
         return context_vec
 
+
+class InputEmbedding(nn.Module):
+    def __init__(self, config):
+
+        super(InputEmbedding, self).__init__()
+
+        #...dimensions:
+        dim_features_continuous = config.data.dim.features.continuous  
+        dim_features_discrete = config.data.dim.features.discrete
+        dim_context_continuous = config.data.dim.context.continuous 
+        dim_context_discrete = config.data.dim.context.discrete     
+
+        #...vocab sizes for discrete data:
+        vocab_size = config.data.vocab_size.features           
+        vocab_size_context = config.data.vocab_size.context             
+
+        #...embedding types:
+        embed_type_time = config.model.embed_type.time
+        embed_type_features_continuous = config.model.embed_type.features.continuous
+        embed_type_features_discrete = config.model.embed_type.features.discrete
+        embed_type_context_continuous = config.model.embed_type.context.continuous
+        embed_type_context_discrete = config.model.embed_type.context.discrete
+
+        #...embedding dimensions:
+        dim_time_emb = config.model.dim.embed.time
+        dim_features_continuous_emb = config.model.dim.embed.features.continuous if config.model.dim.embed.features.continuous else dim_features_continuous
+        dim_features_discrete_emb = config.model.dim.embed.features.discrete 
+        dim_context_continuous_emb = config.model.dim.embed.context.continuous if config.model.dim.embed.context.continuous else dim_context_continuous
+        dim_context_discrete_emb = config.model.dim.embed.context.discrete
+        
+        #...Time embeddings:
+
+        if embed_type_time == 'SinusoidalPositionalEncoding':  self.time_embedding = SinusoidalPositionalEncoding(dim_time_emb, max_period=10000)
+        elif embed_type_time == 'KANLinear':  self.time_embedding = KANLinear(1, dim_time_emb)
+        elif embed_type_time == 'Linear': self.time_embedding = nn.Linear(1, dim_time_emb)  
+        else: NotImplementedError('Time embedding not implemented, choose from `SinusoidalPositionalEncoding`, `KANLinear` or `Linear`') 
+
+        #...Feature embeddings:
+
+        if dim_features_continuous_emb:
+            if embed_type_features_continuous == 'KANLinear':  self.embedding_continuous = KANLinear(dim_features_continuous, dim_features_continuous_emb)
+            elif embed_type_features_continuous == 'Linear':  self.embedding_continuous = nn.Linear(dim_features_continuous, dim_features_continuous_emb) 
+            elif embed_type_features_continuous is None:  self.embedding_continuous = nn.Identity() 
+            else: NotImplementedError('Continuous features embedding not implemented, choose from `kolmogorov-arnold`, `linear` or None') 
+
+        if dim_features_discrete:
+
+            if embed_type_features_discrete == 'Linear': self.embedding_discrete = nn.Sequential(nn.Embedding(vocab_size, dim_features_discrete_emb),
+                                                                                                 nn.Flatten(start_dim=1), 
+                                                                                                 nn.Linear(dim_features_discrete * dim_features_discrete_emb, 
+                                                                                                           dim_features_discrete_emb)) 
+                
+            elif embed_type_features_discrete == 'KANLinear': self.embedding_discrete = nn.Sequential(nn.Embedding(vocab_size, dim_features_discrete_emb),
+                                                                                                      nn.Flatten(start_dim=1), 
+                                                                                                      KANLinear(dim_features_discrete * dim_features_discrete_emb, 
+                                                                                                                dim_features_discrete_emb))         
+            else: NotImplementedError('Discrete context embedding not implemented, use `Linear` or KANLinear')
+
+        #...Context embeddings:
+            
+        if dim_context_continuous:
+            if embed_type_context_continuous == 'KANLinear': self.embedding_context_continuous = KANLinear(dim_context_continuous, dim_context_continuous_emb)
+            elif embed_type_context_continuous == 'Linear':  self.embedding_context_continuous = nn.Linear(dim_context_continuous, dim_context_continuous_emb)
+            elif embed_type_context_continuous is None:  self.embedding_context_continuous = nn.Identity()
+            else: NotImplementedError('Continuous context embedding not implemented, use `embedding` or None')
+
+        if dim_context_discrete:
+            if embed_type_context_discrete == 'Linear': self.embedding_context_discrete = nn.Sequential(nn.Embedding(vocab_size_context, dim_context_discrete_emb),
+                                                                                                        nn.Flatten(start_dim=1), 
+                                                                                                        nn.Linear(dim_context_discrete * dim_context_discrete_emb, 
+                                                                                                                  dim_context_discrete_emb)) 
+            elif embed_type_context_discrete == 'KANLinear': self.embedding_context_discrete = nn.Sequential(nn.Embedding(vocab_size_context, dim_context_discrete_emb),
+                                                                                                             nn.Flatten(start_dim=1), 
+                                                                                                             KANLinear(dim_context_discrete * dim_context_discrete_emb, 
+                                                                                                                       dim_context_discrete_emb))         
+            else: NotImplementedError('Discrete context embedding not implemented, use `Linear` or KANLinear')
+
+
+
+    def forward(self, t, x, k, context_continuous=None, context_discrete=None, mask=None):
+        """
+        Forward pass of the particle embedding.
+
+        Arguments:
+        - t: Time input of shape (batch_size, 1) or (batch_size, 1, 1)
+        - x: Particle continuous features of shape (batch_size, max_num_particles, dim_continuous)
+        - k: Particle discrete features of shape (batch_size, max_num_particles, dim_discrete)
+        - context_continuous: Continuous context features of shape (batch_size, dim_context_continuous)
+        - context_discrete: Discrete context features of shape (batch_size, dim_context_discrete)
+        - mask: Binary mask of shape (batch_size, max_num_particles, 1) indicating valid particles (1) or masked particles (0)
+
+        Returns:
+        - h: Embedded particles of shape (batch_size, N, dim_hidden), masked appropriately
+        - context: Embedded context of shape (batch_size, dim_context)
+        """
+
+        #...time:
+
+        t_emb = self.time_embedding(t.squeeze(-1))           
+        t_context_emb = t_emb.clone()   
+        if x.ndim == 3: t_emb = t_emb.unsqueeze(1).repeat(1, x.shape[1], 1)   # (b, dim_time_emb) -> (b, n, dim_time_emb)
+
+        features = [t_emb] 
+        context = [t_context_emb] 
+
+        #...features:
+
+        if hasattr(self, 'embedding_continuous'):
+            emb = self.embedding_continuous(x) 
+            features.append(emb)
+
+        if hasattr(self, 'embedding_discrete'):
+            emb = self.embedding_discrete(k).squeeze(1)
+            features.append(emb)
+
+        #...context:
+
+        if hasattr(self, 'embedding_context_continuous'):
+            emb = self.embedding_context_continuous(context_continuous)
+            context.append(emb)
+
+        if hasattr(self, 'embedding_context_discrete'):
+            emb = self.embedding_context_discrete(context_discrete).squeeze(1)
+            context.append(emb)
+
+        features = torch.cat(features, dim=-1)    # (b, n, dim_continuous_emb + dim_discrete_emb + dim_time_emb)
+        context = torch.cat(context, dim=-1)      # (b, dim_context_continuous_emb + dim_context_discrete_emb + dim_time_emb)
+
+        return features * mask, context
 
 class PermutationLayer(nn.Module):
     def __init__(self, *dims):

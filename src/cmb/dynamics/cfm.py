@@ -6,7 +6,7 @@ class ConditionalFlowMatching :
 	''' Conditional Flow Matching base class
 	'''
 	def __init__(self, config: dataclass):
-		self.config = config
+		self.config = config.dynamics
 		self.loss_fn = torch.nn.MSELoss(reduction='sum')
 
 	def sample_coupling(self, batch):
@@ -47,7 +47,11 @@ class ConditionalFlowMatching :
 		self.sample_time() 
 		self.sample_bridge()
 		self.get_drift()
-		vt = model(t=self.t, x=self.bridge, context_continuous=self.context_continuous, context_discrete=self.context_discrete, mask=self.mask)
+		vt = model(t=self.t, 
+			 	   x=self.bridge, 
+				   context_continuous=self.context_continuous, 
+				   context_discrete=self.context_discrete, 
+				   mask=self.mask)
 		ut = self.drift.to(vt.device)
 		loss = self.loss_fn(vt, ut)
 		return loss / self.mask.sum()

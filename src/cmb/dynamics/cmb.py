@@ -12,11 +12,10 @@ class ConditionalMarkovBridge :
     ''' Conditional Markov Bridge base class
     '''
     def __init__(self, config: dataclass):
-        self.config = config
-        self.vocab_size = config.vocab_size
-        self.lam = config.lam                             # weight for discrete loss wrt continuous loss
-        self.loss_continuous_fn = MSELoss(reduction='mean')
-        self.loss_discrete_fn = CrossEntropyLoss(reduction='mean')
+        self.config = config.dynamics
+        self.vocab_size = config.data.vocab_size.features
+        self.loss_continuous_fn = MSELoss(reduction='sum')
+        self.loss_discrete_fn = CrossEntropyLoss(reduction='sum')
 
     def sample_coupling(self, batch):
         """ conditional variable z = (x_0, x1) ~ pi(x_0, x_1)
@@ -25,8 +24,9 @@ class ConditionalMarkovBridge :
         self.x1 = batch.target_continuous
         self.k0 = batch.source_discrete
         self.k1 = batch.target_discrete
-        self.context = None
-        self.mask = None
+        self.context_continuous = batch.target_context_continuous if hasattr(batch, 'target_context_continuous') else None
+        self.context_discrete = batch.target_context_discrete if hasattr(batch, 'target_context_discrete') else None
+        self.mask = batch.target_mask if hasattr(batch, 'target_mask') else torch.ones_like(self.x0[..., 0]).unsqueeze(-1)
 
     def sample_time(self):
         """ sample time: t ~ U[0,1]
@@ -35,19 +35,18 @@ class ConditionalMarkovBridge :
         self.t = self.reshape_time(t, self.x1)
 
     def sample_continuous_bridge(self):
-        """ sample conditional bridge: x_t ~ p_t(x|x_0, x_1)
+        """ sample continuous features from gaussian probability path: x_t ~ p_t(x|x_0, x_1)
         """
         mean = self.t * self.x1 + (1. - self.t) * self.x0
         std = self.config.sigma
         self.continuous_bridge = mean + std * torch.randn_like(mean)
 	
     def sample_discrete_bridge(self):
-        """ sample conditional bridge: x_t ~ p_t(x|x_0, x_1)
+        """ sample states from telegram bridge: k_t ~ cat(x|x_0, x_1)
         """
         
         k = torch.arange(0, self.vocab_size)
 
-        # Ensure k0 has at least 2 dimensions
         if self.k0.dim() == 1:
             self.k0 = self.k0.unsqueeze(1)  # Add an extra dimension if needed
         if self.k1.dim() == 1:
@@ -75,14 +74,20 @@ class ConditionalMarkovBridge :
         self.sample_continuous_bridge()
         self.sample_discrete_bridge()
         self.get_drift()
-        vt, logits = model(t=self.t, x=self.continuous_bridge, k=self.discrete_bridge, context=self.context, mask=self.mask, output_rates=False)
+        vt, logits = model(t=self.t, 
+                           x=self.continuous_bridge, 
+                           k=self.discrete_bridge, 
+                           context_continuous=self.context_continuous, 
+                           context_discrete=self.context_discrete, 
+                           mask=self.mask,                    
+                           output_rates=False)
         logits = logits.reshape(-1, self.vocab_size)
         targets = self.k1.reshape(-1).long()
         targets = targets.to(logits.device)
         ut = self.drift.to(vt.device)
-        loss = self.loss_continuous_fn(vt, ut) + self.lam * self.loss_discrete_fn(logits, targets)
+        loss = self.loss_continuous_fn(vt, ut) + self.config.lam * self.loss_discrete_fn(logits, targets)
 
-        return loss
+        return loss / self.mask.sum()
 
     def reshape_time(self, t, x):
         if isinstance(t, (float, int)): return t
@@ -136,8 +141,9 @@ class OTCMB(ConditionalMarkovBridge):
         idx_0, idx_1 = OT.sample_map(pi, self.x0.shape[0], replace=False)
         self.x0, self.x1 = self.x0[idx_0], self.x1[idx_1]
         self.k0, self.k1 = self.k0[idx_0], self.k1[idx_1]
-        self.context = batch.context if hasattr(batch, 'context') else None
-        self.mask = batch.mask if hasattr(batch, 'mask') else None
+        self.context_continuous = batch.target_context_continuous if hasattr(batch, 'target_context_continuous') else None
+        self.context_discrete = batch.target_context_discrete if hasattr(batch, 'target_context_discrete') else None
+        self.mask = batch.target_mask if hasattr(batch, 'target_mask') else torch.ones_like(self.x0[..., 0]).unsqueeze(-1)
 
 
 class SBCMB(ConditionalMarkovBridge):
@@ -152,8 +158,9 @@ class SBCMB(ConditionalMarkovBridge):
         idx_0, idx_1 = SB.sample_map(pi, self.x0.shape[0], replace=False)
         self.x0, self.x1 = self.x0[idx_0], self.x1[idx_1]
         self.k0, self.k1 = self.k0[idx_0], self.k1[idx_1]
-        self.context = batch.context if hasattr(batch, 'context') else None
-        self.mask = batch.mask if hasattr(batch, 'mask') else None
+        self.context_continuous = batch.target_context_continuous if hasattr(batch, 'target_context_continuous') else None
+        self.context_discrete = batch.target_context_discrete if hasattr(batch, 'target_context_discrete') else None
+        self.mask = batch.target_mask if hasattr(batch, 'target_mask') else torch.ones_like(self.x0[..., 0]).unsqueeze(-1)
 
     def sample_continuous_bridge(self):
         self.mean = self.t * self.x1 + (1 - self.t) * self.x0

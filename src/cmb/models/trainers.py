@@ -11,7 +11,7 @@ from tqdm.auto import tqdm
 from pathlib import Path
 from copy import deepcopy
 
-from cmb.data.utils import DefineDataloader
+from cmb.datasets.utils import DefineDataloader
 from cmb.models.utils import Train_Step, Validation_Step, Optimizer, Scheduler, Logger
 
 class CMBTrainer:

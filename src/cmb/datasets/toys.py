@@ -6,77 +6,80 @@ from torchdyn.datasets import generate_moons
 import matplotlib.pyplot as plt
 import math
 
-@dataclass
-class Configs:
-    target : str = 'Ngaussians'
-    source : str = 'StdGauss'
-    num_points : int = 8000
-    dim_continuous : int = 2
-    dim_discrete : int = 0
-    dim_context : int = 0
-    num_gaussians : int = 8
-
-class CouplingData:
-    ''' Dataclass for the coupling between target and source datasets.
+class SampleCoupling:
+    ''' Dataclass for sampling coupling between target and source datasets.
+    
+        targets:
+            - Ngaussians
+            - moons
+            - gaussian 
     '''
-    def __init__(self, config: Configs):
+    def __init__(self, config):
 
         self.config = config
+        N = config.vocab_size.features if config.dim.features.discrete else config.vocab_size.context
 
         #...2D Targets:
 
-        if config.target == 'NGaussians': 
-            self.target = NGaussians(num_gaussians=config.num_gaussians, 
-                                    num_colors=config.vocab_size,
-                                    num_points_per_gaussian=config.num_points//config.num_gaussians , 
-                                    std_dev=0.1, 
-                                    scale=5, 
-                                    labels_as_state=bool(config.dim.discrete),
-                                    labels_as_context=bool(config.dim.context))
+        if config.target.name == 'Ngaussians': 
+            self.target = NGaussians(num_gaussians=N, 
+                                     num_colors=N,
+                                     num_points_per_gaussian=config.target.num_points // N , 
+                                     std_dev=0.1, 
+                                     scale=5, 
+                                     labels_as_state=bool(config.dim.features.discrete),
+                                     labels_as_context=bool(config.dim.context.discrete),
+                                     random_colors=config.target.color_pattern == 'random')
             
-        elif config.target == 'TwoMoons': 
-            self.target = TwoMoons(num_points_per_moon=config.num_points//2, 
-                                    std_dev=0.2, 
-                                    labels_as_state=bool(config.dim.discrete),
-                                    labels_as_context=bool(config.dim.context))
+        elif config.target.name == 'moons': 
+            self.target = TwoMoons(num_points_per_moon=config.target.num_points // 2, 
+                                   std_dev=0.2, 
+                                   labels_as_state=bool(config.dim.features.discrete),
+                                   labels_as_context=bool(config.dim.context.discrete),
+                                   random_colors=config.target.color_pattern == 'random')
         else:
             raise ValueError('Unknown target dataset.')
 
         #...2D Sources:
             
-        if config.source == 'NGaussians':
-            self.source = NGaussians(num_gaussians=config.num_gaussians, 
-                                     num_colors=config.vocab_size,
-                                     num_points_per_gaussian=config.num_points//config.num_gaussians , 
+        if config.source.name == 'Ngaussians':
+            self.source = NGaussians(num_gaussians=N, 
+                                     num_colors=N,
+                                     num_points_per_gaussian=config.source.num_points // N , 
                                      std_dev=0.1, 
                                      scale=5, 
-                                     labels_as_state=bool(config.dim_discrete),
-                                     labels_as_context=bool(config.dim_context))
+                                     labels_as_state=bool(config.dim.features.discrete),
+                                     labels_as_context=bool(config.dim.context.discrete),
+                                     random_colors=config.source.color_pattern == 'random')
             
-        elif config.source == 'TwoMoons':
-            self.source = TwoMoons(num_points_per_moon=config.num_points//2, 
-                                   std_dev=0.2, 
-                                   labels_as_state=bool(config.dim_discrete),
-                                   labels_as_context=bool(config.dim_context))
+        elif config.source.name == 'moons':
+            self.target = TwoMoons(num_points_per_moon=config.source.num_points//2, 
+                                    std_dev=0.2, 
+                                    labels_as_state=bool(config.dim.features.discrete),
+                                    labels_as_context=bool(config.dim.context.discrete),
+                                    random_colors=config.source.color_pattern == 'random')
             
-        elif config.source == 'StdGauss':
-            self.source = StdGauss(num_colors=config.vocab_size,
-                                   num_points=config.num_points, 
+        elif config.source == 'gaussian':
+            self.source = StdGauss(num_colors=N,
+                                   num_points=config.source.num_points, 
                                    std_dev=0.5, 
-                                   labels_as_state=bool(config.dim_discrete),
-                                   labels_as_context=bool(config.dim_context))
+                                   labels_as_state=bool(config.dim.features.discrete),
+                                   labels_as_context=bool(config.dim.context.discrete),
+                                   random_colors=config.source.color_pattern == 'random')
         else:
             raise ValueError('Unknown source dataset.')
         
 
 class NGaussians:
-    def __init__(self, dim=2, num_gaussians=8, num_colors=8, num_points_per_gaussian=1000, std_dev=0.1, scale=5, labels_as_state=False, labels_as_context=False):
+    def __init__(self, dim=2, num_gaussians=8, num_colors=8, num_points_per_gaussian=1000, std_dev=0.1, scale=5, labels_as_state=False, labels_as_context=False, random_colors=False):
         self.dim = dim
         self.num_points_per_gaussian = num_points_per_gaussian
         self.num_gaussians = num_gaussians
+        self.N = num_gaussians * num_points_per_gaussian
         self.num_colors = num_colors if num_colors > 0 else 1
         self.std_dev = std_dev
         self.scale = scale
+        self.random_colors = random_colors
         self.continuous, labels = self.sample_N_concentric_gaussians()
         if labels_as_state: self.discrete = labels.long()
         elif labels_as_context: self.context = labels.long()
@@ -103,11 +106,11 @@ class NGaussians:
         labels = torch.tensor(labels)
         idx = torch.randperm(len(labels))
         positions = positions[idx]
-        labels = labels[idx]
-        return positions, labels
+        labels = np.random.randint(0, self.num_gaussians, self.N) if self.random_colors else labels[idx] 
+        return positions, torch.tensor(labels, dtype=torch.long)  
     
     def display(self, num_points=None, ax=None, **kwargs):
-        num_points = self.num_points_per_gaussian * self.num_gaussians if num_points is None else num_points
+        num_points = self.N if num_points is None else num_points
         c = self.discrete[:num_points] if hasattr(self, 'discrete') else (self.context[:num_points] if hasattr(self, 'context') else None)
         ax.scatter(self.continuous[:num_points, 0], self.continuous[:num_points, 1], c=c, **kwargs)
         plt.xticks([])
@@ -115,28 +118,30 @@ class NGaussians:
         ax.axis('equal')
 
     def __len__(self):
-        assert self.continuous.shape[0] == self.num_points_per_gaussian * self.num_gaussians
-        return self.num_points_per_gaussian * self.num_gaussians
+        assert self.continuous.shape[0] == self.N
+        return self.N
 
 class TwoMoons:
-    def __init__(self, dim=2, num_points_per_moon=1000, std_dev=0.2, labels_as_state=False, labels_as_context=False):
+    def __init__(self, dim=2, num_points_per_moon=1000, std_dev=0.2, labels_as_state=False, labels_as_context=False, random_colors=False):
         self.dim = dim
         self.num_points_per_moon = num_points_per_moon
+        self.N = num_points_per_moon * 2
         self.std_dev = std_dev
+        self.random_colors = random_colors
         self.continuous, labels = self.sample_moons()
         if labels_as_state: self.discrete = labels.long()
         elif labels_as_context: self.context = labels.long()
         else: pass 
 
     def sample_moons(self):
-        positions, labels = generate_moons(2 * self.num_points_per_moon , noise=self.std_dev)
+        positions, labels = generate_moons(self.N, noise=self.std_dev)
         idx = torch.randperm(len(labels))
         positions = positions[idx]
-        labels = labels[idx]
-        return positions * 3 - 1, labels
+        labels = np.random.randint(0, 2, self.N) if self.random_colors else labels[idx] 
+        return positions * 3 - 1, torch.tensor(labels, dtype=torch.long)
     
     def display(self, num_points=None, ax=None, **kwargs):
-        num_points = self.num_points_per_moon * 2 if num_points is None else num_points
+        num_points = self.N if num_points is None else num_points
         c = self.discrete[:num_points] if hasattr(self, 'discrete') else (self.context[:num_points] if hasattr(self, 'context') else None)
         ax.scatter(self.continuous[:num_points, 0], self.continuous[:num_points, 1], c=c, **kwargs)
         plt.xticks([])
@@ -144,22 +149,24 @@ class TwoMoons:
         ax.axis('equal')
                 
     def __len__(self):
-        assert self.continuous.shape[0] == self.num_points_per_moon * 2
-        return self.num_points_per_moon * 2
+        assert self.continuous.shape[0] == self.N
+        return self.N
 
 class StdGauss:
-    def __init__(self, dim=2, num_colors=1, num_points=1000, std_dev=0.1, labels_as_state=False, labels_as_context=False, pizza_slice=False):
+    def __init__(self, dim=2, num_colors=1, num_points=1000, std_dev=0.1, labels_as_state=False, labels_as_context=False, random_colors=False):
         self.dim = dim
         self.num_points = num_points
         self.num_colors = num_colors if num_colors > 0 else 1   
+
         self.std_dev = std_dev
-        if pizza_slice:
+        self.random_colors = random_colors
+        if not self.random_colors:
             self.continuous, labels = self.sample_N_pizza()
         else:
             self.continuous = torch.randn(num_points, dim) * std_dev
             labels = np.random.randint(0, num_colors, num_points)
-        if labels_as_state: self.discrete = labels
-        elif labels_as_context: self.context = labels
+        if labels_as_state: self.discrete = torch.tensor(labels, dtype=torch.long)
+        elif labels_as_context: self.context = torch.tensor(labels, dtype=torch.long)
         else: pass 
 
     def sample_N_pizza(self):
@@ -179,7 +186,6 @@ class StdGauss:
         positions = np.concatenate(positions, axis=0)
         positions = torch.tensor(positions, dtype=torch.float32)
         labels = np.array(labels)
-        labels = torch.tensor(labels, dtype=torch.long)
         return positions, labels
 
     def display(self, num_points=None, ax=None, **kwargs):

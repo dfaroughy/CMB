@@ -15,6 +15,8 @@ from torch.distributions.beta import Beta
 vector.register_awkward()
 
 class CouplingData:
+    ''' class that samples the coupling q(x_0, x_1) between two datasets.
+    '''
     def __init__(self, config: dataclass, standardize: bool=False):
         
         N = config.target.num_jets
@@ -28,7 +30,7 @@ class CouplingData:
             if standardize: self.target.preprocess()
     
         if config.source.name == 'beta':
-            self.source = NoiseClouds(num_clouds=len(self.target), 
+            self.source = PointClouds(num_clouds=len(self.target), 
                                       max_num_particles=config.max_num_particles, 
                                       discrete_features=bool(config.dim.features.discrete), 
                                       masks_like=self.target,
@@ -40,9 +42,9 @@ class CouplingData:
 class ParticleClouds:
     def __init__(self, 
                  dataset,
+                 num_jets=None,
                  min_num_particles=0,
                  max_num_particles=128,
-                 num_jets=None,
                  discrete_features=False):
         
         self.min_num_particles = min_num_particles
@@ -72,7 +74,6 @@ class ParticleClouds:
         #...get continuous features
         self.continuous = data_pt_sorted[...,0:3]
         self.mask = data_pt_sorted[...,-1].long()
-        # self.pt = data_pt_sorted[...,0]
         self.pt_rel = self.continuous[...,0] 
         self.eta_rel = self.continuous[...,1]
         self.phi_rel = self.continuous[...,2]
@@ -229,7 +230,7 @@ class ParticleClouds:
             ax.set_yticks([])
             ax.set_facecolor(facecolor)  # Set the same color for the axis background
 
-class NoiseClouds:
+class PointClouds:
     def __init__(self, 
                 num_clouds, 
                 max_num_particles=128,

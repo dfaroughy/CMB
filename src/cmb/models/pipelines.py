@@ -68,12 +68,59 @@ class EulerSolver:
         return paths
     
 
+class EulerMaruyamaSolver:
+    def __init__(self, model, config):
+        self.model = model  # Should output drift and diffusion coefficients
+        self.device = config.train.device
+
+    def simulate(self, 
+                 time_steps, 
+                 source_continuous, 
+                 context_continuous=None, 
+                 context_discrete=None,
+                 mask=None,
+                 diffusion=.1):
+        
+        x = source_continuous.to(self.device)
+        time_steps = time_steps.to(self.device)
+        context_continuous = context_continuous.to(self.device) if context_continuous is not None else None
+        context_discrete = context_discrete.to(self.device) if context_discrete is not None else None
+        mask = mask.to(self.device) if mask is not None else None
+        
+        delta_t = (time_steps[-1] - time_steps[0]) / (len(time_steps) - 1)
+        sqrt_delta_t = torch.sqrt(delta_t)
+        paths = [x.clone()]
+
+        for time in time_steps[1:]:
+            time = torch.full((x.size(0), 1), time.item(), device=self.device)
+ 
+            drift = self.model(t=time, 
+                               x=x, 
+                               context_continuous=context_continuous, 
+                               context_discrete=context_discrete, 
+                               mask=mask)
+            
+            drift = drift.to(self.device)
+            diffusion = diffusion.to(self.device)
+
+            # Generate Wiener increment
+            noise = torch.randn_like(x).to(self.device)
+            delta_W = sqrt_delta_t * noise
+
+            # Update rule for Euler-Maruyama
+            x = x + drift * delta_t + diffusion * delta_W
+            paths.append(x.clone())
+        
+        paths = torch.stack(paths)
+
+        return paths
+    
 class TauLeapingSolver:
     def __init__(self, model, config):
         self.model = model # rate model
         self.device = config.train.device
-        self.dim_discrete = config.data.dim.discrete
-        self.vocab_size = config.data.vocab_size 
+        self.dim_discrete = config.data.dim.features.discrete
+        self.vocab_size = config.data.vocab_size.features 
 
     def simulate(self, 
                  time_steps, 
@@ -123,8 +170,8 @@ class EulerLeapingSolver:
     def __init__(self, model, config):
         self.model = model # velocity and rate model
         self.device = config.train.device
-        self.dim_discrete = config.data.dim.discrete
-        self.vocab_size = config.data.vocab_size 
+        self.dim_discrete = config.data.dim.features.discrete
+        self.vocab_size = config.data.vocab_size.features 
 
     def simulate(self, 
                  time_steps, 
