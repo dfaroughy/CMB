@@ -1,0 +1,117 @@
+#...General parameters
+######################
+
+general:
+  workdir: ../../results
+
+#...Data parameters
+###################
+
+data:
+  dataset: 2DToys
+
+  target: 
+    name: moons
+    num_points: 70000
+    color_pattern: clustered
+    path: null
+
+  source: 
+    name: Ngaussians
+    num_points: 70000
+    color_pattern: clustered
+    path: null
+
+  dim: 
+    features:
+      continuous: 2
+      discrete: 1
+    context:
+      continuous: 0
+      discrete: 0
+
+  vocab_size: 
+    features: 8
+    context: 0
+
+#...Dynamics parameters
+#######################
+
+dynamics: 
+  name: ConditionalMarkovBridge
+  sigma: 0.1
+  gamma: 0.125
+  lam: 3.0
+
+#...Model parameters
+#####################
+
+model: 
+  name: MixedDataMLP
+
+  dim:
+    hidden: 128
+    embed:
+      time: 16
+      features:
+        continuous: 16
+        discrete: 16
+      context:
+        continuous: 0
+        discrete: 0
+
+  embed_type:
+    time: SinusoidalPositionalEncoding
+    features: 
+      continuous: Linear
+      discrete: Linear
+    context:
+      continuous: null
+      discrete: null
+
+  num_layers: 4
+  use_batch_norm: false
+  dropout: 0.0
+  activation: SELU
+
+#...Pipeline generation parameters
+##################################
+
+pipeline:
+  method: EulerLeapingSolver
+  num_samples: 1000
+  num_timesteps: 100
+  time_eps: 0.001
+
+#...Training parameters
+#######################
+
+train:
+  device: cuda:1
+  multi_gpu: false
+  batch_size: 128
+  data_split_frac: [1.0, 0.0, 0.0]  # train / val / test
+  epochs: 100
+  early_stopping: null
+  min_epochs: null
+  print_epochs: null
+  num_workers: 0
+  pin_memory: false
+
+  optimizer:
+    name: Adam
+    lr: 2.0e-4
+    weight_decay: 0.0
+    betas: [0.9, 0.999]
+    eps: 1.0e-8
+    amsgrad: false
+    gradient_clip: null
+
+  scheduler: 
+    name: null
+    t_max: null
+    eta_min: null
+    gamma: null
+    step_size: null
+########################################
+
