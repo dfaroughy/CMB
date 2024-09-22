@@ -1,6 +1,6 @@
 # Conditional Markov Bridge
 
-Generative model for mixed data (continuous/discrete) based on Telegram processes.
+Generative model for hybrid data (continuous/discrete) based on continuous-time jump markov processes.
 
 ![Model](examples/8gauss2moons_cmb_trajectories.png)
 
