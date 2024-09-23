@@ -27,7 +27,7 @@ def get_activation_function(name: str='ReLU'):
     else: return None
 
 
-def MLP(dim_input, dim_output, dim_hidden, num_layers, activation, dropout, use_batch_norm=False):
+def fc_blocks(dim_input, dim_output, dim_hidden, num_layers, activation, dropout, use_batch_norm=False):
 
   BatchNorm = nn.BatchNorm1d if use_batch_norm else nn.Identity
 
@@ -42,7 +42,7 @@ def MLP(dim_input, dim_output, dim_hidden, num_layers, activation, dropout, use_
   return nn.Sequential(*layers)
 
 
-def kan_block(dim_input, dim_output, dim_hidden, num_layers, dropout, use_batch_norm=False):
+def kan_blocks(dim_input, dim_output, dim_hidden, num_layers, dropout, use_batch_norm=False):
 
   BatchNorm = nn.BatchNorm1d if use_batch_norm else nn.Identity
 
@@ -127,10 +127,10 @@ class MultiHeadAttention(nn.Module):
         return context_vec
 
 
-class InputEmbedding(nn.Module):
+class InputEmbeddings(nn.Module):
     def __init__(self, config):
 
-        super(InputEmbedding, self).__init__()
+        super(InputEmbeddings, self).__init__()
 
         #...dimensions:
         dim_features_continuous = config.data.dim.features.continuous  

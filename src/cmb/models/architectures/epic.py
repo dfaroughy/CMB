@@ -3,7 +3,7 @@ from torch import nn
 from torch.nn import functional as F
 import torch.nn.utils.weight_norm as weight_norm
 
-from cmb.models.architectures.utils import InputEmbedding 
+from cmb.models.architectures.utils import InputEmbeddings
 
 class EPiC(nn.Module):
     ''' Model wrapper for EPiC Network
@@ -20,7 +20,7 @@ class EPiC(nn.Module):
         super().__init__()
 
         self.device = config.train.device
-        dim_output = config.data.dim.continuous
+        dim_output = config.data.dim.features.continuous 
 
         #...embedding dimensions:
         dim_time_emb = config.model.dim.embed.time
@@ -35,7 +35,7 @@ class EPiC(nn.Module):
         use_skip_connection = config.model.skip_connection
 
         #...components:
-        self.embedding = InputEmbedding(config)
+        self.embedding = InputEmbeddings(config)
         self.epic = EPiCNetwork(dim_input=dim_time_emb + dim_features_continuous_emb,
                                 dim_output=dim_output,
                                 dim_context=dim_time_emb + dim_context_continuous_emb + dim_context_discrete_emb ,

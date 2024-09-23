@@ -1,22 +1,23 @@
 import torch 
 from dataclasses import dataclass
-import torch 
-from dataclasses import dataclass
-from cmb.dynamics.utils import right_shape, right_time_size
 from torch.nn import MSELoss, CrossEntropyLoss
 from torch.distributions import Categorical 
-from cmb.dynamics.utils import OTPlanSampler
 
+from cmb.dynamics.utils import OTPlanSampler
+from cmb.dynamics.processes import TelegraphProcess
 
 class ConditionalMarkovBridge :
     ''' Conditional Markov Bridge base class
     '''
     def __init__(self, config: dataclass):
+
         self.config = config.dynamics
         self.vocab_size = config.data.vocab_size.features
+
+        self.ref_process = TelegraphProcess(config)
         self.loss_continuous_fn = MSELoss(reduction='sum')
         self.loss_discrete_fn = CrossEntropyLoss(reduction='sum')
-
+    
     def sample_coupling(self, batch):
         """ conditional variable z = (x_0, x1) ~ pi(x_0, x_1)
         """		
@@ -34,29 +35,25 @@ class ConditionalMarkovBridge :
         t = torch.rand(self.x1.shape[0], device=self.x1.device).type_as(self.x1)
         self.t = self.reshape_time(t, self.x1)
 
-    def sample_continuous_bridge(self):
+    def sample_bridge(self):
         """ sample continuous features from gaussian probability path: x_t ~ p_t(x|x_0, x_1)
         """
+        #...continuous:
         mean = self.t * self.x1 + (1. - self.t) * self.x0
         std = self.config.sigma
-        self.continuous_bridge = mean + std * torch.randn_like(mean)
+        self.bridge_continuous = mean + std * torch.randn_like(mean)
 	
-    def sample_discrete_bridge(self):
-        """ sample states from telegram bridge: k_t ~ cat(x|x_0, x_1)
-        """
-        
+        #...discrete:        
         k = torch.arange(0, self.vocab_size)
+        if self.k0.dim() == 1: self.k0 = self.k0.unsqueeze(1)  # Add an extra dimension if needed
+        if self.k1.dim() == 1: self.k1 = self.k1.unsqueeze(1)
 
-        if self.k0.dim() == 1:
-            self.k0 = self.k0.unsqueeze(1)  # Add an extra dimension if needed
-        if self.k1.dim() == 1:
-            self.k1 = self.k1.unsqueeze(1)
-
-        # Adjust the repeat based on the actual dimensions of k0 and k1
         k = k[None, None, :].repeat(self.k0.size(0), self.k0.size(1), 1).float()
         k = k.to(self.k0.device)
-        transition_probs = self.telegram_bridge_probability(k, self.k1, self.k0, self.t.squeeze())
-        self.discrete_bridge = Categorical(transition_probs).sample().to(self.k1.device)
+
+
+        transition_probs = self.ref_process.bridge_probability(k, self.k1, self.k0, self.t.squeeze())
+        self.bridge_discrete = Categorical(transition_probs).sample().to(self.k1.device)
 
     def get_drift(self):
         """ conditional drift u_t(x|x_0,x_1)
@@ -64,23 +61,24 @@ class ConditionalMarkovBridge :
         A = 0.
         B = 1.
         C = -1.
-        self.drift = A * self.continuous_bridge + B * self.x1 + C * self.x0
+        self.drift = A * self.bridge_continuous + B * self.x1 + C * self.x0
 
     def loss(self, model, batch):
-        """ conditional flow-mathcing MSE loss
+        """ conditional flow-mathcing MSE loss + jump-matching CE loss
         """
         self.sample_coupling(batch)
         self.sample_time() 
-        self.sample_continuous_bridge()
-        self.sample_discrete_bridge()
+        self.sample_bridge()
         self.get_drift()
+
         vt, logits = model(t=self.t, 
-                           x=self.continuous_bridge, 
-                           k=self.discrete_bridge, 
+                           x=self.bridge_continuous, 
+                           k=self.bridge_discrete, 
                            context_continuous=self.context_continuous, 
                            context_discrete=self.context_discrete, 
                            mask=self.mask,                    
                            output_rates=False)
+        
         logits = logits.reshape(-1, self.vocab_size)
         targets = self.k1.reshape(-1).long()
         targets = targets.to(logits.device)
@@ -92,43 +90,6 @@ class ConditionalMarkovBridge :
     def reshape_time(self, t, x):
         if isinstance(t, (float, int)): return t
         else: return t.reshape(-1, *([1] * (x.dim() - 1)))
-
-    #====================================================================
-    # DISCRETE BRIDGE FUNCTIONS
-    #====================================================================
-
-    def multivariate_telegram_conditional(self, x, x0, t, t0):
-        """
-        \begin{equation}
-        P(x(t) = i|x(t_0)) = \frac{1}{s} + w_{t,t_0}\left(-\frac{1}{s} + \delta_{i,x(t_0)}\right)
-        \end{equation}
-
-        \begin{equation}
-        w_{t,t_0} = e^{-S \int_{t_0}^{t} \beta(r)dr}
-        \end{equation}
-
-        """
-        t = right_time_size(t,x).to(x0.device)
-        t0 = right_time_size(t0,x).to(x0.device)
-        beta_t = (t - t0) * self.config.gamma
-        w_t = torch.exp(-self.vocab_size * beta_t)
-        x, x0 = right_shape(x), right_shape(x0)
-
-        kronecker = (x == x0).float()
-        probability = 1. / self.vocab_size + w_t[:, None, None] * ((-1. / self.vocab_size) + kronecker)
-        return probability
-
-    def telegram_bridge_probability(self, x, x1, x0, t):
-        """
-        \begin{equation}
-        P(x_t=x|x_0,x_1) = \frac{p(x_1|x_t=x) p(x_t = x|x_0)}{p(x_1|x_0)}
-        \end{equation}
-        """
-        p_x_to_x1 = self.multivariate_telegram_conditional(x1, x, t=1., t0=t)
-        p_x0_to_x = self.multivariate_telegram_conditional(x, x0, t=t, t0=0.)
-        p_x0_to_x1 = self.multivariate_telegram_conditional(x1, x0, t=1., t0=0.)
-        return (p_x_to_x1 * p_x0_to_x) / p_x0_to_x1
-
 
 class OTCMB(ConditionalMarkovBridge):
     def sample_coupling(self, batch):

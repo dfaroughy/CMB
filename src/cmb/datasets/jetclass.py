@@ -14,7 +14,7 @@ from torch.distributions.beta import Beta
 
 vector.register_awkward()
 
-class CouplingData:
+class SampleCoupling:
     ''' class that samples the coupling q(x_0, x_1) between two datasets.
     '''
     def __init__(self, config: dataclass, standardize: bool=False):
@@ -35,6 +35,7 @@ class CouplingData:
                                       discrete_features=bool(config.dim.features.discrete), 
                                       masks_like=self.target,
                                       noise_type='beta',
+                                      gauss_std=config.source.gauss_std,
                                       concentration=config.source.concentration)
             if standardize: self.source.preprocess()
 
@@ -237,7 +238,8 @@ class PointClouds:
                 masks_like=None,
                 discrete_features=False,
                 noise_type='gauss',
-                concentration=[1.,3.]):
+                concentration=[1.,3.],
+                gauss_std=0.1):
                 
         self.num_clouds = num_clouds
         self.max_num_particles = max_num_particles 
@@ -245,7 +247,7 @@ class PointClouds:
         if noise_type=='beta':
             a, b = torch.tensor(concentration[0]), torch.tensor(concentration[1])
             pt = Beta(a, b).sample((num_clouds, max_num_particles, 1))
-            eta_phi = torch.randn((num_clouds, max_num_particles, 2)) 
+            eta_phi = torch.randn((num_clouds, max_num_particles, 2)) * gauss_std
             continuous = torch.cat([pt, eta_phi], dim=2)
         elif noise_type=='gauss':
             continuous = torch.randn((num_clouds, max_num_particles, 3))

@@ -1,7 +1,5 @@
 import torch
 import numpy as np
-from dataclasses import dataclass
-import seaborn as sns
 from torchdyn.datasets import generate_moons
 import matplotlib.pyplot as plt
 import math
@@ -22,42 +20,52 @@ class SampleCoupling:
         #...2D Targets:
 
         if config.target.name == 'Ngaussians': 
-            self.target = NGaussians(num_gaussians=N, 
-                                     num_colors=N,
-                                     num_points_per_gaussian=config.target.num_points // N , 
+
+            num_gaussians = N if N > 0 else config.target.num_gaussians
+            num_colors = N if N > 0 else 1
+            num_points_per_gaussian = config.target.num_points // num_gaussians 
+
+            self.target = NGaussians(num_gaussians=num_gaussians, 
+                                     num_colors=num_colors,
+                                     num_points_per_gaussian=num_points_per_gaussian , 
                                      std_dev=0.1, 
                                      scale=5, 
                                      labels_as_state=bool(config.dim.features.discrete),
-                                     labels_as_context=bool(config.dim.context.discrete),
-                                     random_colors=config.target.color_pattern == 'random')
+                                     labels_as_context=bool(config.dim.context.discrete))
             
         elif config.target.name == 'moons': 
             self.target = TwoMoons(num_points_per_moon=config.target.num_points // 2, 
                                    std_dev=0.2, 
                                    labels_as_state=bool(config.dim.features.discrete),
-                                   labels_as_context=bool(config.dim.context.discrete),
-                                   random_colors=config.target.color_pattern == 'random')
+                                   labels_as_context=bool(config.dim.context.discrete))
         else:
             raise ValueError('Unknown target dataset.')
 
         #...2D Sources:
             
+        random_colors = config.source.color_pattern == 'random'  if hasattr(config.source, 'color_pattern') else False
+
         if config.source.name == 'Ngaussians':
-            self.source = NGaussians(num_gaussians=N, 
-                                     num_colors=N,
-                                     num_points_per_gaussian=config.source.num_points // N , 
+
+            num_gaussians = N if N > 0 else config.source.num_gaussians
+            num_colors = N if N > 0 else 1
+            num_points_per_gaussian = config.source.num_points // num_gaussians 
+
+            self.source = NGaussians(num_gaussians=num_gaussians, 
+                                     num_colors=num_colors,
+                                     num_points_per_gaussian=num_points_per_gaussian, 
                                      std_dev=0.1, 
                                      scale=5, 
                                      labels_as_state=bool(config.dim.features.discrete),
                                      labels_as_context=bool(config.dim.context.discrete),
-                                     random_colors=config.source.color_pattern == 'random')
+                                     random_colors=random_colors)
             
         elif config.source.name == 'moons':
             self.target = TwoMoons(num_points_per_moon=config.source.num_points//2, 
                                     std_dev=0.2, 
                                     labels_as_state=bool(config.dim.features.discrete),
                                     labels_as_context=bool(config.dim.context.discrete),
-                                    random_colors=config.source.color_pattern == 'random')
+                                    random_colors=random_colors)
             
         elif config.source == 'gaussian':
             self.source = StdGauss(num_colors=N,
@@ -65,7 +73,7 @@ class SampleCoupling:
                                    std_dev=0.5, 
                                    labels_as_state=bool(config.dim.features.discrete),
                                    labels_as_context=bool(config.dim.context.discrete),
-                                   random_colors=config.source.color_pattern == 'random')
+                                   random_colors=random_colors)
         else:
             raise ValueError('Unknown source dataset.')
         

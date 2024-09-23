@@ -38,16 +38,17 @@ data:
 #######################
 
 dynamics: 
-  name: OTCMB
-  sigma: 0.1
-  gamma: 0.125
-  lam: 3.0
+  name: ConditionalFlowMatching
+  process: telegraph
+  sigma: 1.e-5
+  gamma: 1.e-2
+  lam: 1.0
 
 #...Model parameters
 #####################
 
 model: 
-  name: 'MixedDataMLP'
+  name: HybridMLP
 
   dim:
     hidden: 128
@@ -80,7 +81,7 @@ model:
 pipeline:
   method: EulerLeapingSolver
   num_samples: 1000
-  num_timesteps: 100
+  num_timesteps: 1000
   time_eps: 0.001
 
 #...Training parameters
@@ -91,7 +92,7 @@ train:
   multi_gpu: false
   batch_size: 128
   data_split_frac: [1.0, 0.0, 0.0]  # train / val / test
-  epochs: 100
+  epochs: 10
   early_stopping: null
   min_epochs: null
   print_epochs: null

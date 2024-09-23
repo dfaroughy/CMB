@@ -1,48 +1,53 @@
 #...General parameters
+######################
+
 general:
   workdir: ../../results
 
 #...Data parameters
+###################
 
 data:
-  dataset: JetClass
+  dataset: 2DToys
 
-  target:
-    name: tops
-    num_jets: null
-    path:
-      - /home/df630/CMB/data/JetClass/TTBar_000.root
-      # - /home/df630/CMB/data/JetClass/TTBar_001.root
-
-  source: 
-    name: beta
-    concentration: [.1, 10.0]
-    gauss_std: 0.25
-    num_jets: null
+  target: 
+    name: moons
+    num_points: 70000
     path: null
 
-  min_num_particles: 0
-  max_num_particles: 128
+  source: 
+    name: Ngaussians
+    num_points: 70000
+    num_gaussians: 8
+    path: null
 
-  dim:
+  dim: 
     features:
-      continuous: 3
+      continuous: 2
       discrete: 0
     context:
       continuous: 0
       discrete: 0
-  
+
   vocab_size: 
     features: 0
     context: 0
 
+#...Dynamics parameters
+#######################
+
+dynamics: 
+  name: ConditionalFlowMatching
+  sigma: 1.0e-5
+
 #...Model parameters
+#####################
 
 model: 
-  name: 'EPiC'
-  num_blocks: 6
+  name: MLP
 
   dim:
+    hidden: 128
     embed:
       time: 16
       features:
@@ -51,9 +56,6 @@ model:
       context:
         continuous: 0
         discrete: 0
-    hidden: 
-      local: 128
-      glob: 10
 
   embed_type:
     time: SinusoidalPositionalEncoding
@@ -64,31 +66,29 @@ model:
       continuous: null
       discrete: null
 
-  skip_connection: true
-  dropout: 0.1
+  num_layers: 4
+  use_batch_norm: false
+  dropout: 0.0
   activation: SELU
 
-#...Dynamics parameters
-
-dynamics: 
-  name: ConditionalFlowMatching
-  sigma: 0.0001
-
 #...Pipeline generation parameters
+##################################
 
 pipeline:
   method: EulerSolver
-  num_timesteps: 500
+  num_samples: 1000
+  num_timesteps: 1000
   time_eps: 0.001
 
 #...Training parameters
+#######################
 
 train:
   device: cuda:0
   multi_gpu: false
-  batch_size: 1024
-  data_split_frac: [0.8, 0.2, 0.0]  # train / val / test
-  epochs: 10
+  batch_size: 128
+  data_split_frac: [1.0, 0.0, 0.0]  # train / val / test
+  epochs: 100
   early_stopping: null
   min_epochs: null
   print_epochs: null
@@ -97,10 +97,10 @@ train:
 
   optimizer:
     name: Adam
-    lr: 0.0001
+    lr: 2.0e-4
     weight_decay: 0.0
     betas: [0.9, 0.999]
-    eps: 1.e-8
+    eps: 1.0e-8
     amsgrad: false
     gradient_clip: null
 
@@ -110,4 +110,5 @@ train:
     eta_min: null
     gamma: null
     step_size: null
+########################################
 

@@ -4,7 +4,7 @@ import matplotlib.animation as animation
 from matplotlib.colors import ListedColormap, BoundaryNorm
 
 
-def plot_trajectories(paths, jumps, timesteps=[0, 0.2, 0.4, 0.6, 0.8, 1.0], title='CMB', N=2000, cmap='tab10', show_paths=False):
+def plot_trajectories(paths, jumps=None, timesteps=[0, 0.2, 0.4, 0.6, 0.8, 1.0], title='CMB', N=2000, color='darkblue', cmap='tab10', show_paths=False):
     """ Plot trajectories of some selected samples.
     """
     _, ax = plt.subplots(1, len(timesteps), figsize=(2.4*len(timesteps), 2.75))
@@ -12,14 +12,16 @@ def plot_trajectories(paths, jumps, timesteps=[0, 0.2, 0.4, 0.6, 0.8, 1.0], titl
     for j, time in enumerate(timesteps):
 
         idx_path = int(time * len(paths)) if time < 1 else -1 
-        vmin, vmax = jumps.min(), jumps.max()
+        vmin = jumps.min() if jumps is not None else None 
+        vmax = jumps.max() if jumps is not None else None
+        color = jumps[idx_path, :N] if jumps is not None else color
         
         if show_paths:
             for i in range(N):
                 ax[j].plot(paths[:idx_path, i, 0], paths[:idx_path, i, 1], alpha=0.3, lw=0.1, color='k')  # Plot lines for each trajectory
 
         ax[j].scatter(paths[0, :N, 0], paths[0, :N, 1], s=1, color='gray', alpha=0.2, vmin=vmin, vmax=vmax)
-        ax[j].scatter(paths[idx_path, :N, 0], paths[idx_path, :N, 1], s=1, c=jumps[idx_path, :N], cmap=cmap, alpha=1, vmin=vmin, vmax=vmax)
+        ax[j].scatter(paths[idx_path, :N, 0], paths[idx_path, :N, 1], s=1, c=color, cmap=cmap, alpha=1, vmin=vmin, vmax=vmax)
         ax[j].text(0.125, 0.95, f't={idx_path/len(paths) if time < 1 else 1:.1f}', horizontalalignment='center', verticalalignment='center', transform=ax[j].transAxes, fontsize=10)
         ax[j].set_xlim(-1.25, 1.25)
         ax[j].set_xticks([])
@@ -92,5 +94,3 @@ def animate_trajectories(paths, jumps, title='CMB', N=2000, cmap='tab10', show_p
     ani.save(filename, writer='pillow', fps=fps)
     print(f"Animation saved as {filename}")
 
-# Example usage:
-animate_trajectories(pipeline.paths, pipeline.jumps, N=200, cmap='tab10', show_paths=True, filename='trajectories.gif', fps=100)
