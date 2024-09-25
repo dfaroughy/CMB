@@ -140,7 +140,7 @@ class InputEmbeddings(nn.Module):
 
         #...vocab sizes for discrete data:
         vocab_size = config.data.vocab_size.features           
-        vocab_size_context = config.data.vocab_size.context             
+        vocab_size_context = config.data.vocab_size.context     
 
         #...embedding types:
         embed_type_time = config.model.embed_type.time
@@ -173,10 +173,10 @@ class InputEmbeddings(nn.Module):
 
         if dim_features_discrete:
 
-            if embed_type_features_discrete == 'Linear': self.embedding_discrete = nn.Sequential(nn.Embedding(vocab_size, dim_features_discrete_emb),
-                                                                                                 nn.Flatten(start_dim=1), 
-                                                                                                 nn.Linear(dim_features_discrete * dim_features_discrete_emb, 
-                                                                                                           dim_features_discrete_emb)) 
+            if embed_type_features_discrete == 'Linear': self.embedding_discrete = nn.Sequential(nn.Embedding(vocab_size, dim_features_discrete_emb))
+                                                                                                #  nn.Flatten(start_dim=1), 
+                                                                                                #  nn.Linear(num_points * dim_features_discrete * dim_features_discrete_emb, 
+                                                                                                #            dim_features_discrete_emb)) 
                 
             elif embed_type_features_discrete == 'KANLinear': self.embedding_discrete = nn.Sequential(nn.Embedding(vocab_size, dim_features_discrete_emb),
                                                                                                       nn.Flatten(start_dim=1), 
@@ -225,7 +225,7 @@ class InputEmbeddings(nn.Module):
         #...time:
 
         t_emb = self.time_embedding(t.squeeze(-1))           
-        t_context_emb = t_emb.clone()   
+        t_context_emb = t_emb.clone().to(t_emb.device)   
         if x.ndim == 3: t_emb = t_emb.unsqueeze(1).repeat(1, x.shape[1], 1)   # (b, dim_time_emb) -> (b, n, dim_time_emb)
 
         features = [t_emb] 
@@ -238,7 +238,9 @@ class InputEmbeddings(nn.Module):
             features.append(emb)
 
         if hasattr(self, 'embedding_discrete'):
-            emb = self.embedding_discrete(k).squeeze(1)
+            emb = self.embedding_discrete(k)
+            if x.ndim == 2: 
+                emb = emb.squeeze(1)
             features.append(emb)
 
         #...context:

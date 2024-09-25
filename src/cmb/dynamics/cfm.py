@@ -38,7 +38,6 @@ class ConditionalFlowMatching :
 		B = 1.
 		C = -1.
 		self.drift = A * self.bridge + B * self.x1 + C * self.x0
-		self.drift = self.drift * self.mask
 
 	def loss(self, model, batch):
 		""" conditional flow-mathcing MSE loss
@@ -52,7 +51,8 @@ class ConditionalFlowMatching :
 				   context_continuous=self.context_continuous, 
 				   context_discrete=self.context_discrete, 
 				   mask=self.mask)
-		ut = self.drift.to(vt.device)
+		ut = self.drift * self.mask
+		ut = ut.to(vt.device)
 		loss = self.loss_fn(vt, ut)
 		return loss / self.mask.sum()
 

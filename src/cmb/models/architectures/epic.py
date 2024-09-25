@@ -20,41 +20,61 @@ class EPiC(nn.Module):
         super().__init__()
 
         self.device = config.train.device
-        dim_output = config.data.dim.features.continuous 
+
+        #...data dimensions:
+        self.dim_features_continuous = config.data.dim.features.continuous  
+        self.dim_features_discrete = config.data.dim.features.discrete
+        dim_context_continuous = config.data.dim.context.continuous 
+        self.vocab_size = config.data.vocab_size.features  
 
         #...embedding dimensions:
         dim_time_emb = config.model.dim.embed.time
-        dim_features_continuous_emb = config.model.dim.embed.features.continuous if config.model.dim.embed.features.continuous else config.data.dim.features.continuous 
-        dim_context_continuous_emb = config.model.dim.embed.context.continuous if config.model.dim.embed.context.continuous else config.data.dim.context.continuous 
+        dim_features_continuous_emb = config.model.dim.embed.features.continuous if config.model.dim.embed.features.continuous else self.dim_features_continuous
+        dim_features_discrete_emb = config.model.dim.embed.features.discrete 
+        dim_context_continuous_emb = config.model.dim.embed.context.continuous if config.model.dim.embed.context.continuous else dim_context_continuous
         dim_context_discrete_emb = config.model.dim.embed.context.discrete
-
-        #...model params:
-        dim_hidden_local = config.model.dim.hidden.local
-        dim_hidden_global = config.model.dim.hidden.glob
-        num_blocks = config.model.num_blocks
-        use_skip_connection = config.model.skip_connection
 
         #...components:
         self.embedding = InputEmbeddings(config)
-        self.epic = EPiCNetwork(dim_input=dim_time_emb + dim_features_continuous_emb,
-                                dim_output=dim_output,
+        self.epic = EPiCNetwork(dim_input=dim_time_emb + dim_features_continuous_emb + dim_features_discrete_emb,
+                                dim_output=self.dim_features_continuous + self.dim_features_discrete * self.vocab_size,
                                 dim_context=dim_time_emb + dim_context_continuous_emb + dim_context_discrete_emb ,
-                                num_blocks=num_blocks,
-                                dim_hidden_local=dim_hidden_local,
-                                dim_hidden_global=dim_hidden_global,
-                                use_skip_connection=use_skip_connection)
+                                num_blocks=config.model.num_blocks,
+                                dim_hidden_local=config.model.dim.hidden.local,
+                                dim_hidden_global=config.model.dim.hidden.glob,
+                                use_skip_connection=config.model.skip_connection)
                                                 
-    def forward(self, t, x, context_continuous=None, context_discrete=None, mask=None):
+    def forward(self, t, x, k=None, context_continuous=None, context_discrete=None, mask=None):
 
         t = t.to(self.device) 
         x = x.to(self.device) 
+        k = k.to(self.device) if isinstance(k, torch.Tensor) else None
+
         context_continuous = context_continuous.to(self.device) if isinstance(context_continuous, torch.Tensor) else None 
         context_discrete = context_discrete.to(self.device) if isinstance(context_discrete, torch.Tensor) else None 
         mask = mask.to(self.device)
 
-        x_local_emb, context_emb = self.embedding(t, x, None, context_continuous, context_discrete, mask)
+        x_local_emb, context_emb = self.embedding(t, x, k, context_continuous, context_discrete, mask)
         h = self.epic(x_local_emb, context_emb, mask)
         return h    
+
+
+class HybridEPiC(nn.Module):
+    ''' Permutation equivariant architecture for hybrid continuous-discrete models
+    '''
+    def __init__(self, config):
+        super().__init__()
+        self.dim_features_continuous = config.data.dim.features.continuous
+        self.dim_features_discrete = config.data.dim.features.discrete
+        self.vocab_size = config.data.vocab_size.features
+        
+        self.epic = EPiC(config)
+
+    def forward(self, t, x, k, context_continuous=None, context_discrete=None, mask=None):
+        h = self.epic(t, x, k, context_continuous, context_discrete, mask)
+        continuous_head = h[..., :self.dim_features_continuous] 
+        logits = h[..., self.dim_features_continuous:]
+        return continuous_head, logits
 
 
 class EPiCNetwork(nn.Module):

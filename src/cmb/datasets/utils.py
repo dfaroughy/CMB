@@ -1,106 +1,85 @@
-import torch
 import numpy as np
-from torch.utils.data import DataLoader, Subset
-from torch.utils.data import Dataset
-from collections import namedtuple
+import torch
+import awkward as ak
+import fastjet
+import vector
+import uproot
+
+def extract_features(dataset, min_num=0, max_num=128, num_jets=None):
+    if isinstance(dataset, list):
+        all_data = []
+        for data in dataset:
+            assert  '.root' in data, 'Input should be a path to a .root file or a tensor'
+            data = read_root_file(data)
+            features = ['part_ptrel', 'part_etarel', 'part_phirel', 'part_isPhoton', 'part_isNeutralHadron', 'part_isChargedHadron', 'part_isElectron', 'part_isMuon', 'part_charge', 'part_isGhost']       
+            data = torch.tensor(np.stack([ak.to_numpy(pad(data[feat], min_num=min_num, max_num=max_num)) for feat in features] , axis=1))
+            data = torch.permute(data, (0,2,1))   
+            continuous = data[...,0:3] 
+            flavor = data[...,3:8].long()
+            charge = data[...,8].long()
+            mask = data[...,-1].long()
+            discrete = flavor_representation(flavor, charge, rep='one-hot') # (isPhoton, isNeutralHadron, isNegHadron, isPosHadron, isElectron, isAntiElectron, isMuon, isAntiMuon) 
+            data = torch.cat([continuous, discrete, charge.unsqueeze(-1), mask.unsqueeze(-1)], dim=-1)
+            all_data.append(data)   
+        data = torch.cat(all_data, dim=0)   
+        data = data[:num_jets] if num_jets is not None else data
+    else:
+        assert isinstance(dataset, torch.Tensor), 'Input should be a path to a .root file or a tensor'
+        data = dataset[:num_jets] if num_jets is not None else dataset
+    return data
 
 
-class DefineDataSet(Dataset):
-    def __init__(self, data):
-        self.data = data
-
-        self.attributes=[]
-
-        if hasattr(self.data.source, 'continuous'): 
-            self.attributes.append('source_continuous')
-            self.source_continuous = self.data.source.continuous
-
-        if hasattr(self.data.source, 'discrete'): 
-            self.attributes.append('source_discrete')
-            self.source_discrete = self.data.source.discrete
-
-        if hasattr(self.data.source, 'context'): 
-            self.attributes.append('source_context')
-            self.source_context = self.data.source.context
-
-        if hasattr(self.data.source, 'mask'): 
-            self.attributes.append('source_mask')
-            self.source_mask = self.data.source.mask
-
-        if hasattr(self.data.target, 'continuous'): 
-            self.attributes.append('target_continuous')
-            self.target_continuous = self.data.target.continuous
-
-        if hasattr(self.data.target, 'discrete'): 
-            self.attributes.append('target_discrete')
-            self.target_discrete = self.data.target.discrete
-
-        if hasattr(self.data.target, 'context'): 
-            self.attributes.append('target_context')
-            self.target_context = self.data.target.context
-
-        if hasattr(self.data.target, 'mask'): 
-            self.attributes.append('target_mask')
-            self.target_mask = self.data.target.mask
-
-        self.databatch = namedtuple('databatch', self.attributes)
-
-    def __getitem__(self, idx):
-        return self.databatch(*[getattr(self, attr)[idx] for attr in self.attributes])
-
-    def __len__(self):
-        return len(self.data.target)
+def read_root_file(filepath):
     
-    def __iter__(self):
-        for idx in range(len(self)):
-            yield self[idx]
+    """Loads a single .root file from the JetClass dataset.
+    """
+    x = uproot.open(filepath)['tree'].arrays()
+    x['part_pt'] = np.hypot(x['part_px'], x['part_py'])
+    x['part_pt_log'] = np.log(x['part_pt'])
+    x['part_ptrel'] = x['part_pt'] / x['jet_pt']
+    x['part_deltaR'] = np.hypot(x['part_deta'], x['part_dphi'])
+
+    p4 = vector.zip({'px': x['part_px'],
+                        'py': x['part_py'],
+                        'pz': x['part_pz'],
+                        'energy': x['part_energy']})
+
+    x['part_eta'] = p4.eta
+    x['part_phi'] = p4.phi
+    x['part_etarel'] = p4.eta - x['jet_eta'] 
+    x['part_phirel'] = (p4.phi - x['jet_phi'] + np.pi) % (2 * np.pi) - np.pi
+    x['part_isGhost'] = np.ones_like(x['part_energy']) 
+    return x
 
 
-class DefineDataloader:
-    def __init__(self, 
-                 config,
-                 dataclass, 
-                 batch_size: int=None, 
-                 data_split_frac: tuple=None): 
-        self.dataclass = dataclass
-        self.config = config       
-        self.dataset = DefineDataSet(dataclass) 
-        self.data_split = self.config.train.data_split_frac if data_split_frac is None else data_split_frac
-        self.batch_size = self.config.train.batch_size if batch_size is None else batch_size
-        self.dataloader()
+def flavor_representation(flavor_tensor, charge_tensor, rep='states'):
+    ''' inputs: 
+            - flavor in one-hot (isPhoton, isNeutralHadron, isChargedHadron, isElectron, isMuon)
+            - charge (-1, 0, +1)
+        outputs: 
+            - 8-dim discrete feature vector (isPhoton, isNeutralHadron, isNegHadron, isPosHadron, isElectron, isAntiElectron, isMuon, isAntiMuon)  
 
-    def train_val_test_split(self, shuffle=False):
-        assert np.abs(1.0 - sum(self.data_split)) < 1e-3, "Split fractions do not sum to 1!"
-        total_size = len(self.dataset)
-        train_size = int(total_size * self.data_split[0])
-        valid_size = int(total_size * self.data_split[1])
-
-        #...define splitting indices
-
-        idx = torch.randperm(total_size) if shuffle else torch.arange(total_size)
-        idx_train = idx[:train_size].tolist()
-        idx_valid = idx[train_size : train_size + valid_size].tolist()
-        idx_test = idx[train_size + valid_size :].tolist()
-        
-        #...Create Subset for each split
-
-        train_set = Subset(self.dataset, idx_train)
-        valid_set = Subset(self.dataset, idx_valid) if valid_size > 0 else None
-        test_set = Subset(self.dataset, idx_test) if self.data_split[2] > 0 else None
-
-        return train_set, valid_set, test_set
-
-
-    def dataloader(self):
-
-        print("INFO: building dataloaders...")
-        print("INFO: train/val/test split ratios: {}/{}/{}".format(self.data_split[0], self.data_split[1], self.data_split[2]))
-        
-        train, valid, test = self.train_val_test_split(shuffle=True)
-        self.train = DataLoader(dataset=train, batch_size=self.batch_size, shuffle=True)
-        self.valid = DataLoader(dataset=valid,  batch_size=self.batch_size, shuffle=False) if valid is not None else None
-        self.test = DataLoader(dataset=test,  batch_size=self.batch_size, shuffle=True) if test is not None else None
-
-        print('INFO: train size: {}, validation size: {}, testing sizes: {}'.format(len(self.train.dataset),  # type: ignore
-                                                                                    len(self.valid.dataset if valid is not None else []),  # type: ignore
-                                                                                    len(self.test.dataset if test is not None else []))) # type: ignore
+    '''
+    neutrals = flavor_tensor[...,:2].clone()
+    charged = flavor_tensor[...,2:].clone() * charge_tensor.unsqueeze(-1)
+    charged = charged.repeat_interleave(2, dim=-1)
+    for idx in [0,2,4]:
+        pos = charged[..., idx] == 1
+        neg = charged[..., idx+1] == -1
+        charged[..., idx][pos]=0
+        charged[..., idx + 1][neg]=0
+        charged[..., idx][neg]=1
+    one_hot = torch.cat([neutrals, charged], dim=-1)
+    if rep=='one-hot': 
+        return one_hot.long()
+    elif rep=='states': 
+        state = torch.argmax(one_hot, dim=-1)
+        return state.long()
+    
+    
+def pad(a, min_num, max_num, value=0, dtype='float32'):
+    assert max_num >= min_num, 'max_num must be >= min_num'
+    assert isinstance(a, ak.Array), 'Input must be an awkward array'
+    a = a[ak.num(a) >= min_num]
+    a = ak.fill_none(ak.pad_none(a, max_num, clip=True), value)
+    return ak.values_astype(a, dtype)

@@ -11,13 +11,13 @@ data:
     name: tops
     num_jets: null
     path:
-      - /home/df630/CMB/data/JetClass/TTBar_000.root
-      # - /home/df630/CMB/data/JetClass/TTBar_001.root
+      - /home/df630/CMB/data/JetClass/TTBarLep_000.root
 
   source: 
-    name: beta
+    name: beta-gauss
     concentration: [.1, 10.0]
-    gauss_std: 0.25
+    gauss_std: 0.15
+    initial_state_configuration: 'uniform' 
     num_jets: null
     path: null
 
@@ -33,7 +33,7 @@ data:
       discrete: 0      
   
   vocab_size: 
-    features: 8  # e+ e- mu+ mu- h+ h- h0 gamma
+    features: 8  # gamma h0 h- h+ e- e+ mu- mu+
     context: 0   # t->bqq, t->bql, ...
 
 #...Model parameters
@@ -72,10 +72,9 @@ model:
 
 dynamics: 
   name: ConditionalMarkovBridge
-  sigma: 0.1
+  sigma: 0.00001
   gamma: 0.125
-  lam: 3.0
-
+  lam: 0.1
 #...Pipeline generation parameters
 
 pipeline:
@@ -86,11 +85,11 @@ pipeline:
 #...Training parameters
 
 train:
-  device: cuda:0
+  device: cuda:1
   multi_gpu: false
   batch_size: 1024
   data_split_frac: [0.8, 0.2, 0.0]  # train / val / test
-  epochs: 500
+  epochs: 200
   early_stopping: null
   min_epochs: null
   print_epochs: null
