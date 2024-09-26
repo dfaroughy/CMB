@@ -11,12 +11,13 @@ data:
     name: tops
     num_jets: null
     path:
-      - /home/df630/CMB/data/JetClass/TTBarLep_000.root
-
+      - /home/df630/CMB/data/JetClass/TTBar_000.root
+      # - /home/df630/CMB/data/JetClass/TTBar_001.root
+      # - /home/df630/CMB/data/JetClass/TTBar_002.root
   source: 
     name: beta-gauss
     concentration: [.1, 10.0]
-    gauss_std: 0.15
+    gauss_std: 0.25
     initial_state_configuration: 'uniform' 
     num_jets: null
     path: null
@@ -46,7 +47,7 @@ model:
     embed:
       time: 16
       features:
-        continuous: 16
+        continuous: 32
         discrete: 16
       context:
         continuous: 0
@@ -71,9 +72,9 @@ model:
 #...Dynamics parameters
 
 dynamics: 
-  name: ConditionalMarkovBridge
-  sigma: 0.00001
-  gamma: 0.125
+  name: BatchOTCFM
+  sigma: 1.0e-5
+  gamma: 0.1
   lam: 0.1
 #...Pipeline generation parameters
 
@@ -85,11 +86,11 @@ pipeline:
 #...Training parameters
 
 train:
-  device: cuda:1
+  device: cuda:3
   multi_gpu: false
-  batch_size: 1024
-  data_split_frac: [0.8, 0.2, 0.0]  # train / val / test
-  epochs: 200
+  batch_size: 256
+  data_split_frac: [0.9, 0.1, 0.0]  # train / val / test
+  epochs: 1000
   early_stopping: null
   min_epochs: null
   print_epochs: null
@@ -98,7 +99,7 @@ train:
 
   optimizer:
     name: Adam
-    lr: 0.0001
+    lr: 0.0002
     weight_decay: 0.0
     betas: [0.9, 0.999]
     eps: 1.e-8
