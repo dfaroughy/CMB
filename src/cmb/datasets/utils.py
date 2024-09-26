@@ -18,14 +18,16 @@ def extract_features(dataset, min_num=0, max_num=128, num_jets=None):
             flavor = data[...,3:8].long()
             charge = data[...,8].long()
             mask = data[...,-1].long()
-            discrete = flavor_representation(flavor, charge, rep='one-hot') # (isPhoton, isNeutralHadron, isNegHadron, isPosHadron, isElectron, isAntiElectron, isMuon, isAntiMuon) 
-            data = torch.cat([continuous, discrete, charge.unsqueeze(-1), mask.unsqueeze(-1)], dim=-1)
+            discrete = flavor_representation(flavor, charge, rep='states') # (isPhoton, isNeutralHadron, isNegHadron, isPosHadron, isElectron, isAntiElectron, isMuon, isAntiMuon) 
+            data = torch.cat([continuous, discrete.unsqueeze(-1), mask.unsqueeze(-1)], dim=-1)
             all_data.append(data)   
         data = torch.cat(all_data, dim=0)   
         data = data[:num_jets] if num_jets is not None else data
     else:
         assert isinstance(dataset, torch.Tensor), 'Input should be a path to a .root file or a tensor'
         data = dataset[:num_jets] if num_jets is not None else dataset
+        mask = data[...,-1].unsqueeze(-1)
+        data *= mask
     return data
 
 
