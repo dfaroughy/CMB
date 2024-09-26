@@ -21,30 +21,25 @@ class CMBTrainer:
     - config: Configuration dataclass containing training configurations.
     """
 
-    def __init__(self, config, dynamics, model, dataclass):
+    def __init__(self, config, dynamics, model, dataclass=None):
 
         self.config = config
         self.dynamics = dynamics
         self.model = model
-        self.dataloader = DataloaderModule(config, dataclass)
-
-        #...train config:
-
-        self.early_stopping = config.train.epochs if config.train.early_stopping is None else config.train.early_stopping
-        self.min_epochs = 0 if config.train.min_epochs is None else config.train.min_epochs
-        self.print_epochs = 1 if config.train.print_epochs is None else config.train.print_epochs
-
-        #...load model on device:
-
+        self.dataclass = dataclass
         self.model = self.model.to(torch.device(config.train.device))
 
     def train(self):
 
         #...train config:
+
         train = Train_Step()
         valid = Validation_Step()
         optimizer = Optimizer(self.config.train.optimizer)(self.model.parameters())
         scheduler = Scheduler(self.config.train.scheduler)(optimizer)
+        early_stopping = self.config.train.epochs if self.config.train.early_stopping is None else self.config.train.early_stopping
+        min_epochs = 0 if self.config.train.min_epochs is None else self.config.train.min_epochs
+        print_epochs = 1 if self.config.train.print_epochs is None else self.config.train.print_epochs
 
         #...logging:
         self.workdir = Path(self.config.general.workdir) / Path(self.config.data.dataset) / Path(self.config.general.experiment_name)
@@ -62,13 +57,15 @@ class CMBTrainer:
             self.model = DataParallel(self.model)
 
         #...train loop:
+            
+        dataloader = DataloaderModule(self.config, self.dataclass)
+
         for epoch in tqdm(range(self.config.train.epochs), desc="epochs"):
-            train.update(model=self.model, loss_fn=self.dynamics.loss, dataloader=self.dataloader.train, optimizer=optimizer) 
-            valid.update(model=self.model, loss_fn=self.dynamics.loss, dataloader=self.dataloader.valid)
-            TERMINATE, IMPROVED = valid.checkpoint(min_epochs=self.min_epochs, 
-                                                   early_stopping=self.early_stopping)
+            train.update(model=self.model, loss_fn=self.dynamics.loss, dataloader=dataloader.train, optimizer=optimizer) 
+            valid.update(model=self.model, loss_fn=self.dynamics.loss, dataloader=dataloader.valid)
+            TERMINATE, IMPROVED = valid.checkpoint(min_epochs=min_epochs, early_stopping=early_stopping)
             scheduler.step() 
-            self._log_losses(train, valid, epoch)
+            self._log_losses(train, valid, epoch, print_epochs)
             self._save_best_epoch_model(IMPROVED)
             
             if TERMINATE: 
@@ -77,7 +74,7 @@ class CMBTrainer:
                 break
             
         self._save_last_epoch_model()
-        self._save_best_epoch_model(not bool(self.dataloader.valid)) # best = last epoch if there is no validation, needed as a placeholder for pipeline
+        self._save_best_epoch_model(not bool(dataloader.valid)) # best = last epoch if there is no validation, needed as a placeholder for pipeline
         self.plot_loss(valid_loss=valid.losses, train_loss=train.losses)
         self.logger.close()
         
@@ -108,10 +105,10 @@ class CMBTrainer:
         torch.save(self.model.state_dict(), self.workdir/'last_epoch_model.pth') 
         self.last_epoch_model = deepcopy(self.model)
 
-    def _log_losses(self, train, valid, epoch):
+    def _log_losses(self, train, valid, epoch, print_epochs=1):
         message = "\tEpoch: {}, train loss: {}, valid loss: {}  (min valid loss: {})".format(epoch, train.loss, valid.loss, valid.loss_min)
         self.logger.logfile.info(message)
-        if epoch % self.print_epochs == 1:            
+        if epoch % print_epochs == 1:            
             self.plot_loss(valid_loss=valid.losses, train_loss=train.losses)
             self.logger.console.info(message)
 
