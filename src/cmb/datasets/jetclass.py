@@ -19,19 +19,19 @@ vector.register_awkward()
 class JetsBoundaryData:
     ''' class that samples from the source-target coupling q(x_0, x_1)
     '''
-    def __init__(self, config: dataclass, standardize: bool=False):
+    def __init__(self, config: dataclass, target=None, num_jets_source=None, standardize: bool=False):
         
         N = config.target.num_jets
 
         if config.target.name == 'tops':
-            self.target = ParticleClouds(config.target.path, 
+            self.target = ParticleClouds(config.target.path if target is None else target, 
                                          min_num_particles=config.min_num_particles, 
                                          max_num_particles=config.max_num_particles, 
                                          num_jets=N,
                                          discrete_features=bool(config.dim.features.discrete))
     
         if config.source.name == 'beta-gauss':
-            self.source = PointClouds(num_clouds=len(self.target), 
+            self.source = PointClouds(num_clouds=len(self.target) if num_jets_source is None else num_jets_source, 
                                       max_num_particles=config.max_num_particles, 
                                       discrete_features=bool(config.dim.features.discrete), 
                                       masks_like=self.target,
@@ -41,7 +41,6 @@ class JetsBoundaryData:
                                       initial_state_configuration=config.source.initial_state_configuration)
             if standardize: 
                 self.source.preprocess()
-
 
 class ParticleClouds:
     def __init__(self, 
@@ -72,8 +71,7 @@ class ParticleClouds:
 
         #...get discrete features
         if discrete_features:
-            self.flavor = data_pt_sorted[...,3:11]
-            self.discrete = torch.argmax(self.flavor, dim=2) # (0: isPhoton, 1: isNeutralHadron, 2: isNegHadron, 3: isPosHadron, 4: isElectron, 5: isAntiElectron, 6: isMuon, 7: isAntiMuon)
+            self.discrete = data_pt_sorted[..., 3] # (0: isPhoton, 1: isNeutralHadron, 2: isNegHadron, 3: isPosHadron, 4: isElectron, 5: isAntiElectron, 6: isMuon, 7: isAntiMuon)
 
     def __len__(self):
         return self.continuous.shape[0]
@@ -176,6 +174,7 @@ class ParticleClouds:
             ax.set_xticks([])
             ax.set_yticks([])
             ax.set_facecolor(facecolor)  # Set the same color for the axis background
+
 
 class PointClouds:
     def __init__(self, 
