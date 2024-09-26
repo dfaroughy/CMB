@@ -67,7 +67,9 @@ class ConditionalMarkovBridge :
                                               x1=self.x1)
         ut = ut * self.mask
         ut = ut.to(vt.device)
-        loss = self.loss_continuous_fn(vt, ut) + self.config.lam * self.loss_discrete_fn(logits, targets)
+        loss_1 = self.loss_continuous_fn(vt, ut) 
+        loss_2 = self.loss_discrete_fn(logits, targets)
+        loss = loss_1 + self.config.lam * loss_2
         return loss / self.mask.sum()
 
     def reshape_time(self, t, x):
