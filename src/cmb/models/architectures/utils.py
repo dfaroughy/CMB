@@ -139,7 +139,7 @@ class InputEmbeddings(nn.Module):
         dim_context_discrete = config.data.dim.context.discrete     
 
         #...vocab sizes for discrete data:
-        vocab_size = config.data.vocab_size.features           
+        vocab_size = config.data.vocab_size.features         
         vocab_size_context = config.data.vocab_size.context     
 
         #...embedding types:
@@ -173,15 +173,8 @@ class InputEmbeddings(nn.Module):
 
         if dim_features_discrete:
 
-            if embed_type_features_discrete == 'Linear': self.embedding_discrete = nn.Sequential(nn.Embedding(vocab_size, dim_features_discrete_emb))
-                                                                                                #  nn.Flatten(start_dim=1), 
-                                                                                                #  nn.Linear(num_points * dim_features_discrete * dim_features_discrete_emb, 
-                                                                                                #            dim_features_discrete_emb)) 
-                
-            elif embed_type_features_discrete == 'KANLinear': self.embedding_discrete = nn.Sequential(nn.Embedding(vocab_size, dim_features_discrete_emb),
-                                                                                                      nn.Flatten(start_dim=1), 
-                                                                                                      KANLinear(dim_features_discrete * dim_features_discrete_emb, 
-                                                                                                                dim_features_discrete_emb))         
+            if embed_type_features_discrete == 'Linear': self.embedding_discrete = nn.Embedding(vocab_size, dim_features_discrete_emb, padding_idx=0)
+            elif embed_type_features_discrete == 'KANLinear': self.embedding_discrete = nn.Embedding(vocab_size, dim_features_discrete_emb, padding_idx=0)       
             else: NotImplementedError('Discrete context embedding not implemented, use `Linear` or KANLinear')
 
         #...Context embeddings:
@@ -193,17 +186,9 @@ class InputEmbeddings(nn.Module):
             else: NotImplementedError('Continuous context embedding not implemented, use `embedding` or None')
 
         if dim_context_discrete:
-            if embed_type_context_discrete == 'Linear': self.embedding_context_discrete = nn.Sequential(nn.Embedding(vocab_size_context, dim_context_discrete_emb),
-                                                                                                        nn.Flatten(start_dim=1), 
-                                                                                                        nn.Linear(dim_context_discrete * dim_context_discrete_emb, 
-                                                                                                                  dim_context_discrete_emb)) 
-            elif embed_type_context_discrete == 'KANLinear': self.embedding_context_discrete = nn.Sequential(nn.Embedding(vocab_size_context, dim_context_discrete_emb),
-                                                                                                             nn.Flatten(start_dim=1), 
-                                                                                                             KANLinear(dim_context_discrete * dim_context_discrete_emb, 
-                                                                                                                       dim_context_discrete_emb))         
+            if embed_type_context_discrete == 'Linear': self.embedding_context_discrete = nn.Embedding(vocab_size_context, dim_context_discrete_emb)
+            elif embed_type_context_discrete == 'KANLinear': self.embedding_context_discrete = nn.Embedding(vocab_size_context, dim_context_discrete_emb)        
             else: NotImplementedError('Discrete context embedding not implemented, use `Linear` or KANLinear')
-
-
 
     def forward(self, t, x, k, context_continuous=None, context_discrete=None, mask=None):
         """
@@ -238,7 +223,9 @@ class InputEmbeddings(nn.Module):
             features.append(emb)
 
         if hasattr(self, 'embedding_discrete'):
-            emb = self.embedding_discrete(k)
+            # print('>', k.shape)
+            emb = self.embedding_discrete(k.squeeze(-1))
+            # print('>>', k.squeeze(-1).shape, emb.shape)
             if x.ndim == 2: 
                 emb = emb.squeeze(1)
             features.append(emb)

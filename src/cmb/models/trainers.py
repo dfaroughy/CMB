@@ -7,11 +7,14 @@ from torch.nn import DataParallel
 from tqdm.auto import tqdm
 from pathlib import Path
 from copy import deepcopy
+from typing import Union
 
+from cmb.configs.experiments import Configs, import_model
 from cmb.datasets.dataloader import DataloaderModule
 from cmb.models.utils import Train_Step, Validation_Step, Optimizer, Scheduler, Logger
+from cmb.dynamics.solvers import Pipeline
 
-class CMBTrainer:
+class GenerativeDynamicsModule:
     """
     Trainer for dynamic generative models. e.g. CFM
     
@@ -21,18 +24,18 @@ class CMBTrainer:
     - config: Configuration dataclass containing training configurations.
     """
 
-    def __init__(self, config, dynamics, model, dataclass=None):
+    def __init__(self, 
+                 config: Union[Configs, str]=None, 
+                 dataclass=None):
 
-        self.config = config
-        self.dynamics = dynamics
-        self.model = model
         self.dataclass = dataclass
-        self.model = self.model.to(torch.device(config.train.device))
+        self.config, self.model, self.dynamics = import_model(config=config)
+        self.model = self.model.to(torch.device(self.config.train.device))
+        self.workdir = Path(self.config.experiment.workdir) / Path(self.config.data.dataset) / Path(self.config.experiment.name)
 
     def train(self):
 
         #...train config:
-
         train = Train_Step()
         valid = Validation_Step()
         optimizer = Optimizer(self.config.train.optimizer)(self.model.parameters())
@@ -42,14 +45,15 @@ class CMBTrainer:
         print_epochs = 1 if self.config.train.print_epochs is None else self.config.train.print_epochs
 
         #...logging:
-        self.workdir = Path(self.config.general.workdir) / Path(self.config.data.dataset) / Path(self.config.general.experiment_name)
+        
         os.makedirs(self.workdir, exist_ok=True)
-        self.logger = Logger(self.workdir/'training.log')
-        self.logger.logfile.info("Training configurations:")
+        self.config.save(self.workdir / 'config.yaml')
+        self.logger = Logger(self.workdir / 'training.log')
+        self.logger.logfile.info("INFO: Training configurations:")
         self.config.log_config(self.logger)  # Log the nested configurations
-        self.logger.logfile_and_console('number of training parameters: {}'.format(sum(p.numel() for p in self.model.parameters())))
-        self.logger.logfile.info(f"Model architecture:\n{self.model}")
-        self.logger.logfile_and_console("start training...")
+        self.logger.logfile_and_console('INFO: number of training parameters: {}'.format(sum(p.numel() for p in self.model.parameters())))
+        self.logger.logfile.info(f"INFO: model architecture:\n{self.model}")
+        self.logger.logfile_and_console("INFO: start training...")
 
         #...multi-gpu:
         if self.config.train.multi_gpu and torch.cuda.device_count() > 1:
@@ -78,22 +82,24 @@ class CMBTrainer:
         self.plot_loss(valid_loss=valid.losses, train_loss=train.losses)
         self.logger.close()
         
-    def load(self, path: str=None, model: str=None):
-
-        self.workdir = Path(path)
-
-        if model is None:
-            self.best_epoch_model = type(self.model)(self.config)
-            self.last_epoch_model = type(self.model)(self.config)
-            self.best_epoch_model.load_state_dict(torch.load(self.workdir/'best_epoch_model.pth', map_location=(torch.device('cpu') if self.config.train.device=='cpu' else None)))
-            self.last_epoch_model.load_state_dict(torch.load(self.workdir/'last_epoch_model.pth', map_location=(torch.device('cpu') if self.config.train.device=='cpu' else None)))
-        elif model == 'best':
+    def load(self, best_epoch_model: bool=True):
+        if best_epoch_model:
+            print('INFO: loading `best` epoch checkpoint from:') 
+            print('  - {}'.format(self.workdir/'best_epoch_model.pth'))
             self.best_epoch_model = type(self.model)(self.config)
             self.best_epoch_model.load_state_dict(torch.load(self.workdir/'best_epoch_model.pth', map_location=(torch.device('cpu') if self.config.train.device=='cpu' else None)))
-        elif model == 'last':
+        else:
+            print('INFO: loading `last` epoch checkpoint from:') 
+            print('  - {}'.format(self.workdir/'last_epoch_model.pth'))
             self.last_epoch_model = type(self.model)(self.config)
             self.last_epoch_model.load_state_dict(torch.load(self.workdir/'last_epoch_model.pth', map_location=(torch.device('cpu') if self.config.train.device=='cpu' else None)))
-        else: raise ValueError("which_model must be either 'best', 'last', or None")
+
+    @torch.no_grad()
+    def generate(self, best_epoch_model: bool=True, **kwargs):
+        assert hasattr(self, 'best_epoch_model') or hasattr(self, 'last_epoch_model'), "ERROR: No model checkpoint found. Please load a trained model first."
+        time_steps = torch.linspace(0.0, 1.0 - self.config.pipeline.time_eps, self.config.pipeline.num_timesteps)
+        model = self.best_epoch_model if best_epoch_model else self.last_epoch_model
+        self.paths, self.jumps = self.dynamics.solver.simulate(model, time_steps=time_steps, **kwargs)
 
     def _save_best_epoch_model(self, improved):
         if improved:

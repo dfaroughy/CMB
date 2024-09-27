@@ -4,60 +4,48 @@ from dataclasses import dataclass
 
 class Pipeline:
     def __init__(self, 
-                 config: dataclass,
-                 trained_model: nn.Module,
-                 dynamics=None, 
+                 trained_model,
                  best_epoch_model: bool=True
                  ):
 
-        self.config = config
+        self.config = trained_model.config
         self.model = trained_model.best_epoch_model if best_epoch_model else trained_model.last_epoch_model
-        self.dynamics = dynamics
-        self.time_steps = torch.linspace(0.0, 1.0 - config.pipeline.time_eps, config.pipeline.num_timesteps)
+        self.dynamics = trained_model.dynamics
+        self.time_steps = torch.linspace(0.0, 1.0 - self.config.pipeline.time_eps, self.config.pipeline.num_timesteps)
 
     @torch.no_grad()
     def generate_samples(self, **source):
         
         if self.config.pipeline.method == 'EulerSolver':
             solver = EulerSolver(config=self.config, model=self.model, dynamics=self.dynamics)
-            paths = solver.simulate(time_steps=self.time_steps, **source)
-            self.paths = paths.detach().cpu()
-
         elif self.config.pipeline.method == 'TauLeapingSolver':
             solver = TauLeapingSolver(config=self.config, model=self.model, dynamics=self.dynamics)
-            jumps = solver.simulate(time_steps=self.time_steps, **source)
-            self.jumps = jumps.detach().cpu()
 
         elif self.config.pipeline.method == 'EulerLeapingSolver':
             solver = EulerLeapingSolver(config=self.config, model=self.model, dynamics=self.dynamics)
-            paths, jumps = solver.simulate(time_steps=self.time_steps, **source)
-            self.paths = paths.detach().cpu()
-            self.jumps = jumps.detach().cpu()
 
         elif self.config.pipeline.method == 'EulerMaruyamaLeapingSolver':
             solver = EulerMaruyamaLeapingSolver(config=self.config, model=self.model, dynamics=self.dynamics)
-            paths, jumps = solver.simulate(time_steps=self.time_steps, **source)
-            self.paths = paths.detach().cpu()
-            self.jumps = jumps.detach().cpu()
-        
         else:
             raise ValueError('Unknown pipeline method.')
+        self.paths, self.jumps = solver.simulate(time_steps=self.time_steps, **source)
 
 
 class EulerSolver:
     ''' Euler ODE solver for continuous states
     '''
-    def __init__(self, config, model, dynamics=None):
+    def __init__(self, config):
         self.device = config.train.device
-        self.model = model.to(self.device)
 
     def simulate(self, 
+                 model,
                  time_steps, 
                  source_continuous, 
                  context_continuous=None, 
                  context_discrete=None,
                  mask=None):
         
+        model = model.to(self.device)
         x = source_continuous.to(self.device)
         time_steps = time_steps.to(self.device)
         context_continuous = context_continuous.to(self.device) if context_continuous is not None else None
@@ -69,36 +57,37 @@ class EulerSolver:
 
         for time in time_steps[1:]:
             time = torch.full((x.size(0), 1), time.item(), device=self.device)
-            vector = self.model(t=time, 
-                                x=x, 
-                                context_continuous=context_continuous, 
-                                context_discrete=context_discrete, 
-                                mask=mask).to(self.device)
+            vector = model(t=time, 
+                            x=x, 
+                            context_continuous=context_continuous, 
+                            context_discrete=context_discrete, 
+                            mask=mask).to(self.device)
             x += delta_t * vector
             x *= mask
             paths.append(x.clone())
         
         paths = torch.stack(paths)
-
-        return paths
+        return paths.detach().cpu(), None
 
 class EulerMaruyamaSolver:
     ''' Euler-Maruyama SDE solver for continuous states
     '''
-    def __init__(self, config, model, dynamics=None):
+    def __init__(self, config, diffusion):
         self.device = config.train.device
         self.model = model.to(self.device)
-        self.ref_bridge = dynamics.ref_bridge_continuous  
+        self.diffusion = diffusion 
 
     def simulate(self, 
+                 model,
                  time_steps, 
                  source_continuous, 
                  context_continuous=None, 
                  context_discrete=None,
                  mask=None):
         
-        x = source_continuous.to(self.device)
+        model = model.to(self.device)
         time_steps = time_steps.to(self.device)
+        x = source_continuous.to(self.device)
         context_continuous = context_continuous.to(self.device) if context_continuous is not None else None
         context_discrete = context_discrete.to(self.device) if context_discrete is not None else None
         mask = mask.to(self.device) if mask is not None else None
@@ -108,13 +97,13 @@ class EulerMaruyamaSolver:
 
         for time in time_steps[1:]:
             time = torch.full((x.size(0), 1), time.item(), device=self.device)
-            drift = self.model(t=time, 
-                               x=x, 
-                               context_continuous=context_continuous, 
-                               context_discrete=context_discrete, 
-                               mask=mask).to(self.device)
+            drift = model(t=time, 
+                            x=x, 
+                            context_continuous=context_continuous, 
+                            context_discrete=context_discrete, 
+                            mask=mask)
             
-            diffusion = self.ref_bridge.diffusion(t=delta_t).to(self.device)
+            diffusion = self.diffusion(t=delta_t).to(self.device)
             delta_w = torch.randn_like(x).to(self.device)
             x += delta_t * drift + diffusion * delta_w
             x *= mask
@@ -122,22 +111,20 @@ class EulerMaruyamaSolver:
             paths.append(x.clone())
         
         paths = torch.stack(paths)
-
-        return paths
+        return paths.detach().cpu(), None
     
     
 class TauLeapingSolver:
     ''' Tau-Leaping solver for discrete states
     '''
-    def __init__(self, config, model, dynamics=None):
+    def __init__(self, config, rate):
         self.device = config.train.device
         self.dim_discrete = config.data.dim.features.discrete
         self.vocab_size = config.data.vocab_size.features 
-
-        self.model = model.to(self.device)
-        self.ref_bridge = dynamics.ref_bridge_discrete
+        self.rate = rate
 
     def simulate(self, 
+                 model,
                  time_steps, 
                  source_discrete, 
                  context_continuous=None, 
@@ -145,8 +132,9 @@ class TauLeapingSolver:
                  mask=None, 
                  max_rate_last_step=False):
         
-        k = source_discrete.to(self.device)
+        model = model.to(self.device)
         time_steps = time_steps.to(self.device)
+        k = source_discrete.to(self.device)
         context_continuous = context_continuous.to(self.device) if context_continuous is not None else None
         context_discrete = context_discrete.to(self.device) if context_discrete is not None else None
         mask = mask.to(self.device) if mask is not None else None
@@ -157,13 +145,13 @@ class TauLeapingSolver:
         for time in time_steps[1:]:
             time = torch.full((k.size(0), 1), time.item(), device=self.device)
             
-            logits = self.model(t=time, 
-                                k=k, 
-                                context_continuous=context_continuous, 
-                                context_discrete=context_discrete , 
-                                output_rates=True)
+            logits = model(t=time, 
+                            k=k, 
+                            context_continuous=context_continuous, 
+                            context_discrete=context_discrete, 
+                            output_rates=True)
             
-            rates = self.ref_bridge.rates(t=time, k=k, logits=logits).to(self.device)
+            rates = self.rate(t=time, k=k, logits=logits).to(self.device)
     
             max_rate = torch.max(rates, dim=2)[1]
             all_jumps = torch.poisson(rates * delta_t).to(self.device) 
@@ -179,20 +167,20 @@ class TauLeapingSolver:
         if max_rate_last_step:
             jumps[-1] = max_rate # replace last jump with max rates
 
-        return jumps
+        return None, jumps.detach().cpu()
 
 class EulerLeapingSolver:
     ''' EulerLeaping solver for hybrid states combining Euler (ODE) and Tau-Leaping steps.
     '''
-    def __init__(self, config, model, dynamics=None):
+    def __init__(self, config, rate):
         self.device = config.train.device
         self.dim_discrete = config.data.dim.features.discrete
         self.vocab_size = config.data.vocab_size.features 
-
-        self.model = model.to(self.device)
-        self.ref_bridge = dynamics.ref_bridge_discrete
+        self.mask_idx = config.data.vocab_size.mask_idx
+        self.rate = rate
 
     def simulate(self, 
+                 model,
                  time_steps, 
                  source_continuous, 
                  source_discrete, 
@@ -201,9 +189,10 @@ class EulerLeapingSolver:
                  mask=None, 
                  max_rate_last_step=False):
         
+        model = model.to(self.device)
+        time_steps = time_steps.to(self.device)
         x = source_continuous.to(self.device)
         k = source_discrete.to(self.device)
-        time_steps = time_steps.to(self.device)
         context_continuous = context_continuous.to(self.device) if context_continuous is not None else None
         context_discrete = context_discrete.to(self.device) if context_discrete is not None else None
         mask = mask.to(self.device) if mask is not None else None
@@ -216,15 +205,15 @@ class EulerLeapingSolver:
             time = torch.full((x.size(0), 1), time.item(), device=self.device)
 
             #...compute velocity and rates:
-            vector, logits = self.model(t=time, 
-                                       x=x, 
-                                       k=k, 
-                                       context_continuous=context_continuous, 
-                                       context_discrete=context_discrete,
-                                       mask=mask)
+            vector, logits = model(t=time, 
+                                    x=x, 
+                                    k=k, 
+                                    context_continuous=context_continuous, 
+                                    context_discrete=context_discrete,
+                                    mask=mask)
             
             vector = vector.to(self.device)
-            rates = self.ref_bridge.rates(t=time, k=k, logits=logits).to(self.device)
+            rates = self.rate(t=time, k=k, logits=logits, ignore_idx=self.mask_idx).to(self.device)
 
             #...tau-leaping step:
             max_rate = torch.max(rates, dim=2)[1]
@@ -248,22 +237,20 @@ class EulerLeapingSolver:
         if max_rate_last_step:
             jumps[-1] = max_rate # replace last jump with max rates
 
-        return paths, jumps
+        return paths.detach().cpu(), jumps.detach().cpu()
     
 
 class EulerMaruyamaLeapingSolver:
     ''' Euler-Maruyama-Leaping solver for hybrid states combining Euler-Maruyama (SDE) and Tau-Leaping steps
     '''
-    def __init__(self, config, model, dynamics=None):
+    def __init__(self, config, diffusion, rate):
         self.device = config.train.device
         self.dim_discrete = config.data.dim.features.discrete
         self.vocab_size = config.data.vocab_size.features 
+        self.diffusion, self.rate = diffusion, rate
 
-        self.model = model.to(self.device)
-        self.ref_bridge_continuous = dynamics.ref_bridge_continuous
-        self.ref_bridge_discrete = dynamics.ref_bridge_discrete
-
-    def simulate(self, 
+    def simulate(self,
+                 model,
                  time_steps, 
                  source_continuous, 
                  source_discrete, 
@@ -272,9 +259,10 @@ class EulerMaruyamaLeapingSolver:
                  mask=None, 
                  max_rate_last_step=False):
         
+        model = model.to(self.device)
+        time_steps = time_steps.to(self.device)
         x = source_continuous.to(self.device)
         k = source_discrete.to(self.device)
-        time_steps = time_steps.to(self.device)
         context_continuous = context_continuous.to(self.device) if context_continuous is not None else None
         context_discrete = context_discrete.to(self.device) if context_discrete is not None else None
         mask = mask.to(self.device) if mask is not None else None
@@ -287,15 +275,15 @@ class EulerMaruyamaLeapingSolver:
             time = torch.full((x.size(0), 1), time.item(), device=self.device)
 
             #...compute velocity and rates:
-            drift, logits = self.model(t=time, 
-                                       x=x, 
-                                       k=k, 
-                                       context_continuous=context_continuous, 
-                                       context_discrete=context_discrete)
+            drift, logits = model(t=time, 
+                                  x=x, 
+                                  k=k, 
+                                  context_continuous=context_continuous, 
+                                  context_discrete=context_discrete)
             
             drift = drift.to(self.device)
-            diffusion = self.ref_bridge_continuous.diffusion(t=time)#.to(self.device)
-            rates = self.ref_bridge_discrete.rates(t=time, k=k, logits=logits).to(self.device)
+            diffusion = self.diffusion(t=time) #.to(self.device)
+            rates = self.rate(t=time, k=k, logits=logits).to(self.device)
 
             #...tau-leaping step:
             max_rate = torch.max(rates, dim=2)[1]
@@ -321,4 +309,4 @@ class EulerMaruyamaLeapingSolver:
         if max_rate_last_step:
             jumps[-1] = max_rate # replace last jump with max rates
 
-        return paths, jumps
+        return paths.detach().cpu(), jumps.detach().cpu()

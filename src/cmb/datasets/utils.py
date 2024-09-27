@@ -19,7 +19,8 @@ def extract_features(dataset, min_num=0, max_num=128, num_jets=None):
             charge = data[...,8].long()
             mask = data[...,-1].long()
             discrete = flavor_representation(flavor, charge, rep='states') # (isPhoton, isNeutralHadron, isNegHadron, isPosHadron, isElectron, isAntiElectron, isMuon, isAntiMuon) 
-            data = torch.cat([continuous, discrete.unsqueeze(-1), mask.unsqueeze(-1)], dim=-1)
+            discrete = discrete.unsqueeze(-1) * mask.unsqueeze(-1)
+            data = torch.cat([continuous, discrete.long(), mask.unsqueeze(-1)], dim=-1)
             all_data.append(data)   
         data = torch.cat(all_data, dim=0)   
         data = data[:num_jets] if num_jets is not None else data
@@ -59,7 +60,7 @@ def flavor_representation(flavor_tensor, charge_tensor, rep='states'):
             - flavor in one-hot (isPhoton, isNeutralHadron, isChargedHadron, isElectron, isMuon)
             - charge (-1, 0, +1)
         outputs: 
-            - 8-dim discrete feature vector (isPhoton, isNeutralHadron, isNegHadron, isPosHadron, isElectron, isAntiElectron, isMuon, isAntiMuon)  
+            - 8-dim discrete feature vector (isPhoton:1, isNeutralHadron:2, isNegHadron:3, isPosHadron:4, isElectron:5, isAntiElectron:6, isMuon:7, isAntiMuon:8)  
 
     '''
     neutrals = flavor_tensor[...,:2].clone()
@@ -76,7 +77,8 @@ def flavor_representation(flavor_tensor, charge_tensor, rep='states'):
         return one_hot.long()
     elif rep=='states': 
         state = torch.argmax(one_hot, dim=-1)
-        return state.long()
+        state += 1
+        return state
     
     
 def pad(a, min_num, max_num, value=0, dtype='float32'):

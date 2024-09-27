@@ -73,13 +73,10 @@ model:
 dynamics: 
   name: ConditionalFlowMatching
   sigma: 0.0001
-
-#...Pipeline generation parameters
-
-pipeline:
-  method: EulerSolver
-  num_timesteps: 500
-  time_eps: 0.001
+  pipeline:
+    method: EulerSolver
+    num_timesteps: 500
+    time_eps: 0.001
 
 #...Training parameters
 

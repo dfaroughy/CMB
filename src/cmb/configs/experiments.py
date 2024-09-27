@@ -1,13 +1,15 @@
 import yaml
 import numpy as np
 from datetime import datetime
+from typing import Union
+from pathlib import Path
 
 class Configs:
     def __init__(self, config_source):
         if isinstance(config_source, str):
-            # If config_source is a file path, load the YAML file
             with open(config_source, 'r') as f:
                 config_dict = yaml.safe_load(f)
+                        
         elif isinstance(config_source, dict):
             # If config_source is a dict, use it directly
             config_dict = config_source
@@ -17,11 +19,12 @@ class Configs:
         # Recursively set attributes
         self._set_attributes(config_dict)
         
-        if hasattr(self, 'data'):
-            if hasattr(self.data, 'source') and hasattr(self.data, 'target'):
-                self.general.experiment_name = f"{self.data.source.name}_to_{self.data.target.name}_{self.dynamics.name}_{self.model.name}"
+        if hasattr(self, 'experiment'):
+            if not hasattr(self.experiment, 'name'):
+                self.experiment.name = f"{self.data.source.name}_to_{self.data.target.name}_{self.dynamics.name}_{self.model.name}"
                 time = datetime.now().strftime("%Y.%m.%d_%Hh%M")
-                self.general.experiment_name += f"_{time}"
+                self.experiment.name += f"_{time}"
+                print('INFO: created experiment instance {}'.format(self.experiment.name)) 
 
     def _set_attributes(self, config_dict):
         for key, value in config_dict.items():
@@ -81,3 +84,30 @@ class Configs:
                 self._log_dict(value, logger, indent + 4)
             else:
                 logger.logfile.info(f"{prefix}{key}: {value}")
+
+    def save(self, path):
+        """
+        Saves the configuration parameters to a YAML file.
+        """
+        config_dict = self.to_dict()
+        with open(path, 'w') as f:
+            yaml.dump(config_dict, f, default_flow_style=False)
+            
+def import_model(config: Union[Configs, str]):
+
+    from cmb.dynamics.cfm import ConditionalFlowMatching, BatchOTCFM, BatchSBCFM
+    from cmb.dynamics.cmb import ConditionalMarkovBridge, BatchOTCMB, BatchSBCMB
+    from cmb.models.architectures.deep_nets import MLP, HybridMLP, ClassifierMLP
+    from cmb.models.architectures.epic import EPiC, HybridEPiC
+
+    if isinstance(config, str):
+        config = Configs(config)
+
+    model = locals()[config.model.name](config)
+    dynamics = locals()[config.dynamics.name](config)
+
+    print('INFO: loading model...')
+    print('  - model: {}'.format(config.model.name))
+    print( '  - dynamics: {}'.format(config.dynamics.name))
+
+    return config, model, dynamics, 

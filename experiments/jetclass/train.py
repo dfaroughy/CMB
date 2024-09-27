@@ -8,7 +8,7 @@ from cmb.datasets.jetclass import JetsBoundaryData
 from cmb.models.trainers import CMBTrainer
 from cmb.models.architectures.epic import HybridEPiC
 from cmb.datasets.jetclass import ParticleClouds
-from cmb.models.pipelines import Pipeline
+from cmb.dynamics.solvers import Pipeline
 
 from cmb.dynamics.cmb import ConditionalMarkovBridge, BatchOTCMB
 

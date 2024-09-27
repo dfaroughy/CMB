@@ -25,7 +25,7 @@ class EPiC(nn.Module):
         self.dim_features_continuous = config.data.dim.features.continuous  
         self.dim_features_discrete = config.data.dim.features.discrete
         dim_context_continuous = config.data.dim.context.continuous 
-        self.vocab_size = config.data.vocab_size.features  
+        self.vocab_size = config.data.vocab_size.features
 
         #...embedding dimensions:
         dim_time_emb = config.model.dim.embed.time
@@ -38,7 +38,7 @@ class EPiC(nn.Module):
         self.embedding = InputEmbeddings(config)
         self.epic = EPiCNetwork(dim_input=dim_time_emb + dim_features_continuous_emb + dim_features_discrete_emb,
                                 dim_output=self.dim_features_continuous + self.dim_features_discrete * self.vocab_size,
-                                dim_context=dim_time_emb + dim_context_continuous_emb + dim_context_discrete_emb ,
+                                dim_context=dim_time_emb + dim_context_continuous_emb + dim_context_discrete_emb,
                                 num_blocks=config.model.num_blocks,
                                 dim_hidden_local=config.model.dim.hidden.local,
                                 dim_hidden_global=config.model.dim.hidden.glob,

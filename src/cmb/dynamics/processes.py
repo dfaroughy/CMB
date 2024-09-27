@@ -56,22 +56,33 @@ class TelegraphBridge:
         self.config = config.dynamics
         self.vocab_size = config.data.vocab_size.features
         self.time_epsilon = config.pipeline.time_eps
-
+        self.ignore_idx = config.data.vocab_size.mask_idx
+    
     def sample(self, t, k0, k1):
         transition_probs = self.probability(t, k0, k1)
         return Categorical(transition_probs).sample().to(k1.device)
     
-    def rates(self, t, k, logits):
+    def rate(self, t, k, logits, ignore_idx=0):
+
+        logits[..., ignore_idx] = float('-inf')               # ignore zero-padding
+    
+        qx = softmax(logits, dim=2)                           # softmax to get the transition probabilities for all states
+        qy = torch.gather(qx, 2, k.long().unsqueeze(-1))       # get probabilities for the current state `k`
+
+        #...apply the Telegraph rates:
+
+        S = self.vocab_size - 1                               # -1 ignore zero-padding
         t = t.squeeze()
         t1 = 1. - self.time_epsilon
-        beta_integral = (t1 - t) * self.config.gamma
-        wt = torch.exp(-self.vocab_size * beta_integral)
+        wt = torch.exp(-S * self.config.gamma * (t1 - t) )
         A = 1.0
-        B = (wt * self.vocab_size) / (1. - wt)
+        B = (wt * S) / (1. - wt)
         C = wt
-        qx = softmax(logits, dim=2)
-        qy = torch.gather(qx, 2, k.long().unsqueeze(2))
+
         rate = A + B[:, None, None] * qx + C[:, None, None] * qy
+        mask = (k != ignore_idx).float().unsqueeze(-1)                  # Mask for ignoring transitions from ignored states
+        rate = rate * mask                                              # Zero out the rates for transitions involving ignored states
+
         return rate
 
     def probability(self, t, k0, k1):
@@ -96,7 +107,8 @@ class TelegraphBridge:
         p_k0_to_k1 = self.conditional_probability(0.0, 1.0, k0, k1)
         
         return (p_k_to_k1 * p_k0_to_k) / p_k0_to_k1
-            
+
+
     def conditional_probability(self, t_in, t_out, k_in, k_out):
         """
         \begin{equation}
@@ -108,7 +120,7 @@ class TelegraphBridge:
         \end{equation}
 
         """
-        S = self.vocab_size
+        S = self.vocab_size - 1
         t_out = right_time_size(t_out, k_out).to(k_in.device)
         t_in = right_time_size(t_in, k_out).to(k_in.device)
         w_t = torch.exp(- S * self.config.gamma * (t_out - t_in))
@@ -116,7 +128,6 @@ class TelegraphBridge:
         kronecker = (k_out == k_in).float()
         prob = 1. / S + w_t[:, None, None] * ((-1. / S) + kronecker)
         return prob
-
 
 right_shape = lambda x: x if len(x.shape) == 3 else x[:, :, None]
 right_time_size = lambda t, x: t if isinstance(t, torch.Tensor) else torch.full((x.size(0),), t).to(x.device)

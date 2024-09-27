@@ -5,6 +5,7 @@ from torch.distributions import Categorical
 
 from cmb.dynamics.utils import OTPlanSampler
 from cmb.dynamics.processes import TelegraphBridge, LinearBridge, SchrodingerBridge
+from cmb.dynamics.solvers import EulerLeapingSolver
 
 class ConditionalMarkovBridge :
     ''' Conditional Markov Bridge base class for hybrid data
@@ -18,9 +19,12 @@ class ConditionalMarkovBridge :
         self.ref_bridge_continuous = LinearBridge(config)
         self.ref_bridge_discrete = TelegraphBridge(config)
 
+        #...solvers:
+        self.solver = EulerLeapingSolver(config=config, rate=self.ref_bridge_discrete.rate)
+
         #...losses:
         self.loss_continuous_fn = MSELoss(reduction='sum')
-        self.loss_discrete_fn = CrossEntropyLoss(reduction='sum')
+        self.loss_discrete_fn = CrossEntropyLoss(reduction='sum', ignore_index=config.data.vocab_size.mask_idx)
 
     def sample_time(self):
         """ sample time: t ~ U[0,1]
@@ -68,7 +72,7 @@ class ConditionalMarkovBridge :
         ut = ut * self.mask
         ut = ut.to(vt.device)
         loss_1 = self.loss_continuous_fn(vt, ut) 
-        loss_2 = self.loss_discrete_fn(logits, targets)
+        loss_2 = self.loss_discrete_fn(logits, targets, )
         loss = loss_1 + self.config.lam * loss_2
         return loss / self.mask.sum()
 

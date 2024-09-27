@@ -1,26 +1,34 @@
-#...General parameters
-general:
-  workdir: ../../results
+#...General experiment parameters
+experiment:
+  workdir: /home/df630/CMB/results
 
 #...Data parameters
 
 data:
   dataset: JetClass
-
+  
   target:
     name: tops
-    num_jets: null
-    path:
-      - /home/df630/CMB/data/JetClass/TTBar_000.root
-      # - /home/df630/CMB/data/JetClass/TTBar_001.root
-      # - /home/df630/CMB/data/JetClass/TTBar_002.root
+    train:
+      num_jets: null
+      path:
+        - /home/df630/CMB/data/JetClass/TTBar_000.root
+    test:
+      num_jets: null
+      path:
+        - /home/df630/CMB/data/JetClass/TTBar_002.root
+
   source: 
     name: beta-gauss
     concentration: [.1, 10.0]
     gauss_std: 0.25
-    initial_state_configuration: 'uniform' 
-    num_jets: null
-    path: null
+    initial_state_configuration: uniform
+    train:
+      num_jets: null
+      path: null
+    test:
+      num_jets: null
+      path: null
 
   min_num_particles: 0
   max_num_particles: 128
@@ -34,20 +42,21 @@ data:
       discrete: 0      
   
   vocab_size: 
-    features: 8  # gamma h0 h- h+ e- e+ mu- mu+
+    features: 9  # mask, gamma, h0, h-, h+, e-, e+, mu-, mu+ 
     context: 0   # t->bqq, t->bql, ...
+    mask_idx: 0
 
 #...Model parameters
 
 model: 
-  name: 'HybridEPiC'
+  name: HybridEPiC
   num_blocks: 6
 
   dim:
     embed:
       time: 16
       features:
-        continuous: 32
+        continuous: 16
         discrete: 16
       context:
         continuous: 0
@@ -72,7 +81,7 @@ model:
 #...Dynamics parameters
 
 dynamics: 
-  name: BatchOTCFM
+  name: ConditionalMarkovBridge
   sigma: 1.0e-5
   gamma: 0.1
   lam: 0.1
@@ -86,11 +95,11 @@ pipeline:
 #...Training parameters
 
 train:
-  device: cuda:3
+  device: cuda:0
   multi_gpu: false
-  batch_size: 256
+  batch_size: 1048
   data_split_frac: [0.9, 0.1, 0.0]  # train / val / test
-  epochs: 1000
+  epochs: 2
   early_stopping: null
   min_epochs: null
   print_epochs: null

@@ -16,22 +16,38 @@ from cmb.datasets.utils import extract_features
 
 vector.register_awkward()
 
-class JetsBoundaryData:
+class JetsClassData:
     ''' class that samples from the source-target coupling q(x_0, x_1)
     '''
-    def __init__(self, config: dataclass, target=None, num_jets_source=None, standardize: bool=False):
+    def __init__(self, 
+                 config: dataclass, 
+                 dataset_source=None, 
+                 dataset_target=None, 
+                 num_jets_source=None, 
+                 num_jets_target=None,  
+                 standardize: bool=False,
+                 test=False):
         
-        N = config.target.num_jets
+        if test: 
+            N_target = config.target.test.num_jets if num_jets_target is None else num_jets_target
+            N_source = config.source.test.num_jets if num_jets_source is None else num_jets_source
+            dataset_target = config.target.test.path if dataset_target is None else dataset_target
+            dataset_source = config.target.test.path if dataset_source is None else dataset_source
+        else:
+            N_target = config.target.train.num_jets if num_jets_target is None else num_jets_target
+            N_source = config.source.train.num_jets if num_jets_source is None else num_jets_source
+            dataset_target = config.target.train.path if dataset_target is None else dataset_target
+            dataset_source = config.target.test.path if dataset_source is None else dataset_source
 
         if config.target.name == 'tops':
-            self.target = ParticleClouds(config.target.path if target is None else target, 
+            self.target = ParticleClouds(dataset=dataset_target, 
                                          min_num_particles=config.min_num_particles, 
                                          max_num_particles=config.max_num_particles, 
-                                         num_jets=N,
+                                         num_jets=N_target,
                                          discrete_features=bool(config.dim.features.discrete))
     
         if config.source.name == 'beta-gauss':
-            self.source = PointClouds(num_clouds=len(self.target) if num_jets_source is None else num_jets_source, 
+            self.source = PointClouds(num_clouds=N_source if test else len(self.target), 
                                       max_num_particles=config.max_num_particles, 
                                       discrete_features=bool(config.dim.features.discrete), 
                                       masks_like=self.target,
@@ -54,7 +70,7 @@ class ParticleClouds:
         self.max_num_particles = max_num_particles
 
         #...get particle data
-        data = extract_features(dataset)
+        data = extract_features(dataset, num_jets=num_jets)
         
         #...pt order data
         idx = torch.argsort(data[...,0], dim=1, descending=True)
@@ -71,7 +87,7 @@ class ParticleClouds:
 
         #...get discrete features
         if discrete_features:
-            self.discrete = data_pt_sorted[..., 3] # (0: isPhoton, 1: isNeutralHadron, 2: isNegHadron, 3: isPosHadron, 4: isElectron, 5: isAntiElectron, 6: isMuon, 7: isAntiMuon)
+            self.discrete = data_pt_sorted[..., 3].unsqueeze(-1).long() # (1: isPhoton, 2: isNeutralHadron, 3: isNegHadron, 4: isPosHadron, 5: isElectron, 6: isAntiElectron, 7: isMuon, 8: isAntiMuon)
 
     def __len__(self):
         return self.continuous.shape[0]
@@ -114,9 +130,8 @@ class ParticleClouds:
         y = getattr(reference.constituents, feature)[mask]
         return scipy.stats.wasserstein_distance(x, y)
 
-    def histplot(self, features='pt_rel', xlim=None, ylim=None, xlabel=None, ylabel=None, idx=None, figsize=(3,3), ax=None, **kwargs):
-        mask = self.mask.squeeze(-1) > 0
-        x = getattr(self, features)[mask] if idx is None else getattr(self, features)[:,idx]
+    def histplot(self, features='pt_rel', mask=None, xlim=None, ylim=None, xlabel=None, ylabel=None, idx=None, figsize=(3,3), ax=None, **kwargs):
+        x = getattr(self, features)[mask] if mask is not None else getattr(self, features)
         if ax is None: _, ax = plt.subplots(figsize=figsize)   
         sns.histplot(x=x.numpy(), element="step", ax=ax, **kwargs) 
         ax.set_xlabel(features if xlabel is None else xlabel)
@@ -136,17 +151,17 @@ class ParticleClouds:
             
             if hasattr(self, 'discrete'):
 
-                flavor = self.discrete[idx].numpy()
+                flavor = self.discrete.squeeze(-1)[idx].numpy()
                 flavor = flavor[mask]
 
-                ax.scatter(eta[flavor==0], phi[flavor==0], marker='o', s=pt[flavor==0], color='gold', alpha=0.5, label=r'$\gamma$')
-                ax.scatter(eta[flavor==1], phi[flavor==1], marker='o', s=pt[flavor==1], color='red', alpha=0.5,  label=r'$h^{0}$')
-                ax.scatter(eta[flavor==2], phi[flavor==2], marker='^', s=pt[flavor==2], color='darkred', alpha=0.5,  label=r'$h^{-}$')
-                ax.scatter(eta[flavor==3], phi[flavor==3], marker='v', s=pt[flavor==3], color='darkred', alpha=0.5,  label=r'$h^{+}$')
-                ax.scatter(eta[flavor==4], phi[flavor==4], marker='^', s=pt[flavor==4], color='blue', alpha=0.5,  label=r'$e^{-}$')
-                ax.scatter(eta[flavor==5], phi[flavor==5], marker='v', s=pt[flavor==5], color='blue', alpha=0.5,  label=r'$e^{+}$')
-                ax.scatter(eta[flavor==6], phi[flavor==6], marker='^', s=pt[flavor==6], color='green', alpha=0.5,  label=r'$\mu^{-}$')
-                ax.scatter(eta[flavor==7], phi[flavor==7], marker='v', s=pt[flavor==7], color='green', alpha=0.5,  label=r'$\mu^{+}$')
+                ax.scatter(eta[flavor==1], phi[flavor==1], marker='o', s=pt[flavor==1], color='gold', alpha=0.5, label=r'$\gamma$')
+                ax.scatter(eta[flavor==2], phi[flavor==2], marker='o', s=pt[flavor==2], color='red', alpha=0.5,  label=r'$h^{0}$')
+                ax.scatter(eta[flavor==3], phi[flavor==3], marker='^', s=pt[flavor==3], color='darkred', alpha=0.5,  label=r'$h^{-}$')
+                ax.scatter(eta[flavor==4], phi[flavor==4], marker='v', s=pt[flavor==4], color='darkred', alpha=0.5,  label=r'$h^{+}$')
+                ax.scatter(eta[flavor==5], phi[flavor==5], marker='^', s=pt[flavor==5], color='blue', alpha=0.5,  label=r'$e^{-}$')
+                ax.scatter(eta[flavor==6], phi[flavor==6], marker='v', s=pt[flavor==6], color='blue', alpha=0.5,  label=r'$e^{+}$')
+                ax.scatter(eta[flavor==7], phi[flavor==7], marker='^', s=pt[flavor==7], color='green', alpha=0.5,  label=r'$\mu^{-}$')
+                ax.scatter(eta[flavor==8], phi[flavor==8], marker='v', s=pt[flavor==8], color='green', alpha=0.5,  label=r'$\mu^{+}$')
 
                 # Define custom legend markers
                 h1 = Line2D([0], [0], marker='o', markersize=2, alpha=0.5, color='gold', linestyle='None')
@@ -199,20 +214,20 @@ class PointClouds:
             continuous = torch.randn((num_clouds, max_num_particles, 3))
         else:
             raise ValueError('Noise type not recognized. Choose between "gauss" and "beta-gauss".')
-        
+        self.sample_masks(masks_like=masks_like)
         idx = torch.argsort(continuous[...,0], dim=1, descending=True)
         self.continuous = torch.gather(continuous, 1, idx.unsqueeze(-1).expand(-1, -1, continuous.size(2)))
         self.pt_rel = self.continuous[...,0] 
         self.eta_rel = self.continuous[...,1]
         self.phi_rel = self.continuous[...,2]
-        self.sample_masks(masks_like=masks_like)
 
         if discrete_features:
             if initial_state_configuration == 'uniform':
-                self.discrete = np.random.choice([0,1,2,3,4,5,6,7], size=(num_clouds, max_num_particles))
+                discrete = np.random.choice([1,2,3,4,5,6,7,8], size=(num_clouds, max_num_particles))
             else:
-                self.discrete = np.ones((num_clouds, max_num_particles)) * initial_state_configuration
-            self.discrete = torch.tensor(self.discrete).long()
+                discrete = np.ones((num_clouds, max_num_particles)) * initial_state_configuration
+            discrete = torch.tensor(discrete).unsqueeze(-1) 
+            self.discrete = discrete.long()
 
     def __len__(self):
         return self.num_clouds 
@@ -241,19 +256,11 @@ class PointClouds:
             self.mask = masks.long()
             self.mask = self.mask.unsqueeze(-1)
 
-    def histplot(self, features='pt_rel', xlim=None, ylim=None, xlabel=None, ylabel=None, idx=None, figsize=(3,3), ax=None, **kwargs):
-        mask = self.mask.squeeze(-1) > 0
+    def histplot(self, features='pt_rel', mask=None, xlim=None, ylim=None, xlabel=None, ylabel=None, idx=None, figsize=(3,3), ax=None, **kwargs):
+        x = getattr(self, features)[mask] if mask is not None else getattr(self, features)
         if ax is None: _, ax = plt.subplots(figsize=figsize)   
-        if isinstance(features, tuple):
-            x = getattr(self, features[0])[mask] if idx is None else getattr(self, features[0])[:,idx]
-            y = getattr(self, features[1])[mask] if idx is None else getattr(self, features[1])[:,idx]
-            sns.histplot(x=x.numpy(), y=y.numpy(), ax=ax, **kwargs)
-            ax.set_xlabel(features[0] if xlabel is None else xlabel)
-            ax.set_ylabel(features[1] if ylabel is None else ylabel)
-        else:
-            x = getattr(self, features)[mask] if idx is None else getattr(self, features)[:,idx]
-            sns.histplot(x=x.numpy(), element="step", ax=ax, **kwargs) 
-            ax.set_xlabel(features if xlabel is None else xlabel)
+        sns.histplot(x=x.numpy(), element="step", ax=ax, **kwargs) 
+        ax.set_xlabel(features if xlabel is None else xlabel)
         ax.set_xlim(xlim)
         ax.set_ylim(ylim)
 
@@ -279,54 +286,54 @@ class PointClouds:
         self.phi_rel = self.continuous[...,2]
 
     def display_cloud(self, idx, scale_marker=1.0, ax=None, figsize=(3,3) , facecolor='whitesmoke', color='darkblue', title_box_anchor=(1.025,1.125)):
-            eta = self.eta_rel[idx].numpy()
-            phi = self.phi_rel[idx].numpy()
-            pt = 3 * scale_marker * self.pt_rel[idx].numpy()
-            mask = list(self.mask.squeeze(-1)[idx].numpy()>0)
-            pt = pt[mask] 
-            eta = eta[mask] 
-            phi = phi[mask] 
+        eta = self.eta_rel[idx].numpy()
+        phi = self.phi_rel[idx].numpy()
+        pt = 3 * scale_marker * self.pt_rel[idx].numpy()
+        mask = list(self.mask.squeeze(-1)[idx].numpy()>0)
+        pt = pt[mask] 
+        eta = eta[mask] 
+        phi = phi[mask] 
 
-            if ax is None: _, ax = plt.subplots(figsize=figsize)            
-            
-            if hasattr(self, 'discrete'):
+        if ax is None: _, ax = plt.subplots(figsize=figsize)            
+        
+        if hasattr(self, 'discrete'):
 
-                flavor = self.discrete[idx].numpy()
-                flavor = flavor[mask]
+            flavor = self.discrete.squeeze(-1)[idx].numpy()
+            flavor = flavor[mask]
 
-                ax.scatter(eta[flavor==0], phi[flavor==0], marker='o', s=pt[flavor==0], color='gold', alpha=0.5, label=r'$\gamma$')
-                ax.scatter(eta[flavor==1], phi[flavor==1], marker='o', s=pt[flavor==1], color='red', alpha=0.5,  label=r'$h^{0}$')
-                ax.scatter(eta[flavor==2], phi[flavor==2], marker='^', s=pt[flavor==2], color='darkred', alpha=0.5,  label=r'$h^{-}$')
-                ax.scatter(eta[flavor==3], phi[flavor==3], marker='v', s=pt[flavor==3], color='darkred', alpha=0.5,  label=r'$h^{+}$')
-                ax.scatter(eta[flavor==4], phi[flavor==4], marker='^', s=pt[flavor==4], color='blue', alpha=0.5,  label=r'$e^{-}$')
-                ax.scatter(eta[flavor==5], phi[flavor==5], marker='v', s=pt[flavor==5], color='blue', alpha=0.5,  label=r'$e^{+}$')
-                ax.scatter(eta[flavor==6], phi[flavor==6], marker='^', s=pt[flavor==6], color='green', alpha=0.5,  label=r'$\mu^{-}$')
-                ax.scatter(eta[flavor==7], phi[flavor==7], marker='v', s=pt[flavor==7], color='green', alpha=0.5,  label=r'$\mu^{+}$')
+            ax.scatter(eta[flavor==1], phi[flavor==1], marker='o', s=pt[flavor==1], color='gold', alpha=0.5, label=r'$\gamma$')
+            ax.scatter(eta[flavor==2], phi[flavor==2], marker='o', s=pt[flavor==2], color='red', alpha=0.5,  label=r'$h^{0}$')
+            ax.scatter(eta[flavor==3], phi[flavor==3], marker='^', s=pt[flavor==3], color='darkred', alpha=0.5,  label=r'$h^{-}$')
+            ax.scatter(eta[flavor==4], phi[flavor==4], marker='v', s=pt[flavor==4], color='darkred', alpha=0.5,  label=r'$h^{+}$')
+            ax.scatter(eta[flavor==5], phi[flavor==5], marker='^', s=pt[flavor==5], color='blue', alpha=0.5,  label=r'$e^{-}$')
+            ax.scatter(eta[flavor==6], phi[flavor==6], marker='v', s=pt[flavor==6], color='blue', alpha=0.5,  label=r'$e^{+}$')
+            ax.scatter(eta[flavor==7], phi[flavor==7], marker='^', s=pt[flavor==7], color='green', alpha=0.5,  label=r'$\mu^{-}$')
+            ax.scatter(eta[flavor==8], phi[flavor==8], marker='v', s=pt[flavor==8], color='green', alpha=0.5,  label=r'$\mu^{+}$')
 
-                # Define custom legend markers
-                h1 = Line2D([0], [0], marker='o', markersize=2, alpha=0.5, color='gold', linestyle='None')
-                h2 = Line2D([0], [0], marker='o', markersize=2, alpha=0.5, color='red', linestyle='None')
-                h3 = Line2D([0], [0], marker='^', markersize=2, alpha=0.5, color='darkred', linestyle='None')
-                h4 = Line2D([0], [0], marker='v', markersize=2, alpha=0.5, color='darkred', linestyle='None')
-                h5 = Line2D([0], [0], marker='^', markersize=2, alpha=0.5, color='blue', linestyle='None')
-                h6 = Line2D([0], [0], marker='v', markersize=2, alpha=0.5, color='blue', linestyle='None')
-                h7 = Line2D([0], [0], marker='^', markersize=2, alpha=0.5, color='green', linestyle='None')
-                h8 = Line2D([0], [0], marker='v', markersize=2, alpha=0.5, color='green', linestyle='None')
+            # Define custom legend markers
+            h1 = Line2D([0], [0], marker='o', markersize=2, alpha=0.5, color='gold', linestyle='None')
+            h2 = Line2D([0], [0], marker='o', markersize=2, alpha=0.5, color='red', linestyle='None')
+            h3 = Line2D([0], [0], marker='^', markersize=2, alpha=0.5, color='darkred', linestyle='None')
+            h4 = Line2D([0], [0], marker='v', markersize=2, alpha=0.5, color='darkred', linestyle='None')
+            h5 = Line2D([0], [0], marker='^', markersize=2, alpha=0.5, color='blue', linestyle='None')
+            h6 = Line2D([0], [0], marker='v', markersize=2, alpha=0.5, color='blue', linestyle='None')
+            h7 = Line2D([0], [0], marker='^', markersize=2, alpha=0.5, color='green', linestyle='None')
+            h8 = Line2D([0], [0], marker='v', markersize=2, alpha=0.5, color='green', linestyle='None')
 
-                plt.legend([h1, h2, h3, h4, h5, h6, h7, h8], 
-                        [r'$\gamma$', r'$h^0$', r'$h^-$', r'$h^+$', r'$e^-$', r'$e^+$', r'$\mu^{-}$', r'$\mu^{+}$'], 
-                        loc="upper right", 
-                        markerscale=2, 
-                        scatterpoints=1, 
-                        fontsize=7,  
-                        frameon=False,
-                        ncol=8,
-                        bbox_to_anchor=title_box_anchor,
-                        handletextpad=-0.5,  
-                        columnspacing=.1) 
-            else:
-                ax.scatter(eta, phi, marker='o', s=pt, color=color, alpha=0.5)
-            ax.set_xticks([])
-            ax.set_yticks([])
-            ax.set_facecolor(facecolor)  # Set the same color for the axis background
+            plt.legend([h1, h2, h3, h4, h5, h6, h7, h8], 
+                    [r'$\gamma$', r'$h^0$', r'$h^-$', r'$h^+$', r'$e^-$', r'$e^+$', r'$\mu^{-}$', r'$\mu^{+}$'], 
+                    loc="upper right", 
+                    markerscale=2, 
+                    scatterpoints=1, 
+                    fontsize=7,  
+                    frameon=False,
+                    ncol=8,
+                    bbox_to_anchor=title_box_anchor,
+                    handletextpad=-0.5,  
+                    columnspacing=.1) 
+        else:
+            ax.scatter(eta, phi, marker='o', s=pt, color=color, alpha=0.5)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_facecolor(facecolor)  # Set the same color for the axis background
 
