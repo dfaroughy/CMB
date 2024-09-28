@@ -3,6 +3,8 @@ import torch.nn as nn
 from dataclasses import dataclass
 
 class Pipeline:
+    ''' Dynamics simmulation pipeline for generating samples
+    '''
     def __init__(self, 
                  trained_model,
                  best_epoch_model: bool=True
@@ -13,28 +15,27 @@ class Pipeline:
         self.dynamics = trained_model.dynamics
         self.time_steps = torch.linspace(0.0, 1.0 - self.config.pipeline.time_eps, self.config.pipeline.num_timesteps)
 
+        #...solvers:
+        self.registered_solvers = {'EulerSolver': EulerSolver,
+                                   'EulerMaruyamaSolver': EulerMaruyamaSolver,
+                                   'TauLeapingSolver': TauLeapingSolver,
+                                   'EulerLeapingSolver': EulerLeapingSolver,
+                                   'EulerMaruyamaLeapingSolver': EulerMaruyamaLeapingSolver}
+        
+        self.solver = self.registered_solvers.get(self.config.pipeline.method)
+
     @torch.no_grad()
     def generate_samples(self, **source):
-        
-        if self.config.pipeline.method == 'EulerSolver':
-            solver = EulerSolver(config=self.config, model=self.model, dynamics=self.dynamics)
-        elif self.config.pipeline.method == 'TauLeapingSolver':
-            solver = TauLeapingSolver(config=self.config, model=self.model, dynamics=self.dynamics)
-
-        elif self.config.pipeline.method == 'EulerLeapingSolver':
-            solver = EulerLeapingSolver(config=self.config, model=self.model, dynamics=self.dynamics)
-
-        elif self.config.pipeline.method == 'EulerMaruyamaLeapingSolver':
-            solver = EulerMaruyamaLeapingSolver(config=self.config, model=self.model, dynamics=self.dynamics)
-        else:
-            raise ValueError('Unknown pipeline method.')
+        ''' Generate samples from the model using the pipeline method.
+        '''
+        solver = self.solver(config=self.config, model=self.model, dynamics=self.dynamics)
         self.paths, self.jumps = solver.simulate(time_steps=self.time_steps, **source)
-
+        
 
 class EulerSolver:
     ''' Euler ODE solver for continuous states
     '''
-    def __init__(self, config):
+    def __init__(self, config, dynamics_discrete=None, dynamics_continuous=None):
         self.device = config.train.device
 
     def simulate(self, 
@@ -72,10 +73,9 @@ class EulerSolver:
 class EulerMaruyamaSolver:
     ''' Euler-Maruyama SDE solver for continuous states
     '''
-    def __init__(self, config, diffusion):
+    def __init__(self, config, dynamics_continuous, dynamics_discrete=None):
         self.device = config.train.device
-        self.model = model.to(self.device)
-        self.diffusion = diffusion 
+        self.diffusion = dynamics_continuous.diffusion 
 
     def simulate(self, 
                  model,
@@ -98,10 +98,10 @@ class EulerMaruyamaSolver:
         for time in time_steps[1:]:
             time = torch.full((x.size(0), 1), time.item(), device=self.device)
             drift = model(t=time, 
-                            x=x, 
-                            context_continuous=context_continuous, 
-                            context_discrete=context_discrete, 
-                            mask=mask)
+                          x=x, 
+                          context_continuous=context_continuous, 
+                          context_discrete=context_discrete, 
+                          mask=mask)
             
             diffusion = self.diffusion(t=delta_t).to(self.device)
             delta_w = torch.randn_like(x).to(self.device)
@@ -117,11 +117,11 @@ class EulerMaruyamaSolver:
 class TauLeapingSolver:
     ''' Tau-Leaping solver for discrete states
     '''
-    def __init__(self, config, rate):
+    def __init__(self, config, dynamics_discrete, dynamics_continuous=None):
         self.device = config.train.device
         self.dim_discrete = config.data.dim.features.discrete
-        self.vocab_size = config.data.vocab_size.features 
-        self.rate = rate
+        self.vocab_size = config.data.vocab.size.features 
+        self.rate = dynamics_discrete.rate
 
     def simulate(self, 
                  model,
@@ -155,7 +155,7 @@ class TauLeapingSolver:
     
             max_rate = torch.max(rates, dim=2)[1]
             all_jumps = torch.poisson(rates * delta_t).to(self.device) 
-            _mask =  torch.sum(all_jumps, dim=-1).type_as(k) <= 1
+            _mask =  torch.sum(all_jumps, dim=-1).type_as(k.squeeze(-1)) <= 1
             diff = torch.arange(self.vocab_size, device=self.device).view(1, 1, self.vocab_size) - k[:,:, None]
             net_jumps = torch.sum(all_jumps * diff, dim=-1).type_as(k)
             k += net_jumps * _mask
@@ -172,12 +172,11 @@ class TauLeapingSolver:
 class EulerLeapingSolver:
     ''' EulerLeaping solver for hybrid states combining Euler (ODE) and Tau-Leaping steps.
     '''
-    def __init__(self, config, rate):
+    def __init__(self, config, dynamics_discrete, dynamics_continuous=None):
         self.device = config.train.device
         self.dim_discrete = config.data.dim.features.discrete
-        self.vocab_size = config.data.vocab_size.features 
-        self.mask_idx = config.data.vocab_size.mask_idx
-        self.rate = rate
+        self.vocab_size = config.data.vocab.size.features 
+        self.rate = dynamics_discrete.rate
 
     def simulate(self, 
                  model,
@@ -205,6 +204,7 @@ class EulerLeapingSolver:
             time = torch.full((x.size(0), 1), time.item(), device=self.device)
 
             #...compute velocity and rates:
+            
             vector, logits = model(t=time, 
                                     x=x, 
                                     k=k, 
@@ -213,17 +213,19 @@ class EulerLeapingSolver:
                                     mask=mask)
             
             vector = vector.to(self.device)
-            rates = self.rate(t=time, k=k, logits=logits, ignore_idx=self.mask_idx).to(self.device)
+            rates = self.rate(t=time, k=k, logits=logits).to(self.device)
 
             #...tau-leaping step:
+            k = k.squeeze(-1)
             max_rate = torch.max(rates, dim=2)[1]
             all_jumps = torch.poisson(rates * delta_t).to(self.device) 
             jump_mask =  torch.sum(all_jumps, dim=-1).type_as(k) <= 1
-            diff = torch.arange(self.vocab_size, device=self.device).view(1, 1, self.vocab_size) - k[:,:, None]
+            diff = torch.arange(self.vocab_size, device=self.device).view(1, 1, self.vocab_size) - k[:, :, None]
             net_jumps = torch.sum(all_jumps * diff, dim=-1).type_as(k)
             k += net_jumps * jump_mask
             k = torch.clamp(k, min=0, max=self.vocab_size-1)    
-            k = (k.unsqueeze(-1) * mask).squeeze(-1)       
+            k = k.unsqueeze(-1)
+            k *= mask
             jumps.append(k.clone())
 
             #...euler step:
@@ -243,11 +245,12 @@ class EulerLeapingSolver:
 class EulerMaruyamaLeapingSolver:
     ''' Euler-Maruyama-Leaping solver for hybrid states combining Euler-Maruyama (SDE) and Tau-Leaping steps
     '''
-    def __init__(self, config, diffusion, rate):
+    def __init__(self, config, dynamics_discrete, dynamics_continuous):
         self.device = config.train.device
         self.dim_discrete = config.data.dim.features.discrete
-        self.vocab_size = config.data.vocab_size.features 
-        self.diffusion, self.rate = diffusion, rate
+        self.vocab_size = config.data.vocab.size.features 
+        self.diffusion = dynamics_continuous.diffusion
+        self.rate = dynamics_discrete.rate
 
     def simulate(self,
                  model,

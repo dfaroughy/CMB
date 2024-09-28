@@ -50,6 +50,7 @@ class JetsClassData:
             self.source = PointClouds(num_clouds=N_source if test else len(self.target), 
                                       max_num_particles=config.max_num_particles, 
                                       discrete_features=bool(config.dim.features.discrete), 
+                                      vocab_size=config.vocab.size.features,
                                       masks_like=self.target,
                                       noise_type='beta-gauss',
                                       gauss_std=config.source.gauss_std,
@@ -197,6 +198,7 @@ class PointClouds:
                 max_num_particles=128,
                 masks_like=None,
                 discrete_features=False,
+                vocab_size=None,
                 noise_type='gauss',
                 concentration=[1.,3.],
                 initial_state_configuration='random',
@@ -223,7 +225,7 @@ class PointClouds:
 
         if discrete_features:
             if initial_state_configuration == 'uniform':
-                discrete = np.random.choice([1,2,3,4,5,6,7,8], size=(num_clouds, max_num_particles))
+                discrete = np.random.choice(range(vocab_size), size=(num_clouds, max_num_particles))
             else:
                 discrete = np.ones((num_clouds, max_num_particles)) * initial_state_configuration
             discrete = torch.tensor(discrete).unsqueeze(-1) 

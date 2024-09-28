@@ -139,8 +139,8 @@ class InputEmbeddings(nn.Module):
         dim_context_discrete = config.data.dim.context.discrete     
 
         #...vocab sizes for discrete data:
-        vocab_size = config.data.vocab_size.features         
-        vocab_size_context = config.data.vocab_size.context     
+        vocab_size = config.data.vocab.size.features         
+        vocab_size_context = config.data.vocab.size.context     
 
         #...embedding types:
         embed_type_time = config.model.embed_type.time
@@ -172,9 +172,8 @@ class InputEmbeddings(nn.Module):
             else: NotImplementedError('Continuous features embedding not implemented, choose from `kolmogorov-arnold`, `linear` or None') 
 
         if dim_features_discrete:
-
-            if embed_type_features_discrete == 'Linear': self.embedding_discrete = nn.Embedding(vocab_size, dim_features_discrete_emb, padding_idx=0)
-            elif embed_type_features_discrete == 'KANLinear': self.embedding_discrete = nn.Embedding(vocab_size, dim_features_discrete_emb, padding_idx=0)       
+            if embed_type_features_discrete == 'Linear': self.embedding_discrete = nn.Embedding(vocab_size, dim_features_discrete_emb)
+            elif embed_type_features_discrete == 'KANLinear': self.embedding_discrete = nn.Embedding(vocab_size, dim_features_discrete_emb)       
             else: NotImplementedError('Discrete context embedding not implemented, use `Linear` or KANLinear')
 
         #...Context embeddings:
@@ -223,9 +222,7 @@ class InputEmbeddings(nn.Module):
             features.append(emb)
 
         if hasattr(self, 'embedding_discrete'):
-            # print('>', k.shape)
             emb = self.embedding_discrete(k.squeeze(-1))
-            # print('>>', k.squeeze(-1).shape, emb.shape)
             if x.ndim == 2: 
                 emb = emb.squeeze(1)
             features.append(emb)

@@ -13,6 +13,7 @@ data:
       num_jets: null
       path:
         - /home/df630/CMB/data/JetClass/TTBar_000.root
+        - /home/df630/CMB/data/JetClass/TTBar_001.root
     test:
       num_jets: null
       path:
@@ -27,7 +28,7 @@ data:
       num_jets: null
       path: null
     test:
-      num_jets: null
+      num_jets: 2000
       path: null
 
   min_num_particles: 0
@@ -36,34 +37,34 @@ data:
   dim:
     features:
       continuous: 3    # pt_rel, eta_rel, phi_phi
-      discrete: 1      # flavor
+      discrete: 1      # flavor/charge
     context:
       continuous: 0
       discrete: 0      
   
-  vocab_size: 
-    features: 9  # mask, gamma, h0, h-, h+, e-, e+, mu-, mu+ 
-    context: 0   # t->bqq, t->bql, ...
-    mask_idx: 0
+  vocab:
+    size: 
+      features: 8  # mask, gamma, h0, h-, h+, e-, e+, mu-, mu+ 
+      context: 0   # t->bqq, t->bql, ...
 
 #...Model parameters
 
 model: 
   name: HybridEPiC
-  num_blocks: 6
+  num_blocks: 10
 
   dim:
     embed:
-      time: 16
+      time: 32
       features:
-        continuous: 16
-        discrete: 16
+        continuous: 32
+        discrete: 32
       context:
         continuous: 0
         discrete: 0
     hidden: 
-      local: 128
-      glob: 10
+      local: 256
+      glob: 16
 
   embed_type:
     time: SinusoidalPositionalEncoding
@@ -82,14 +83,21 @@ model:
 
 dynamics: 
   name: ConditionalMarkovBridge
-  sigma: 1.0e-5
-  gamma: 0.1
-  lam: 0.1
+  loss_weight: 0.1
+
+  continuous:
+    process: FlowMatching
+    sigma: 1.0e-5
+
+  discrete:
+    process: TelegraphProcess
+    gamma: 0.01
+
 #...Pipeline generation parameters
 
 pipeline:
   method: EulerLeapingSolver
-  num_timesteps: 500
+  num_timesteps: 1000
   time_eps: 0.001
 
 #...Training parameters
@@ -99,7 +107,7 @@ train:
   multi_gpu: false
   batch_size: 1048
   data_split_frac: [0.9, 0.1, 0.0]  # train / val / test
-  epochs: 2
+  epochs: 20
   early_stopping: null
   min_epochs: null
   print_epochs: null

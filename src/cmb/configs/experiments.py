@@ -105,9 +105,5 @@ def import_model(config: Union[Configs, str]):
 
     model = locals()[config.model.name](config)
     dynamics = locals()[config.dynamics.name](config)
-
-    print('INFO: loading model...')
-    print('  - model: {}'.format(config.model.name))
-    print( '  - dynamics: {}'.format(config.dynamics.name))
-
+    print('      - model: {}'.format(config.model.name))
     return config, model, dynamics, 

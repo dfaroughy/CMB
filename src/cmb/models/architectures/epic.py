@@ -25,7 +25,7 @@ class EPiC(nn.Module):
         self.dim_features_continuous = config.data.dim.features.continuous  
         self.dim_features_discrete = config.data.dim.features.discrete
         dim_context_continuous = config.data.dim.context.continuous 
-        self.vocab_size = config.data.vocab_size.features
+        self.vocab_size = config.data.vocab.size.features
 
         #...embedding dimensions:
         dim_time_emb = config.model.dim.embed.time
@@ -66,7 +66,7 @@ class HybridEPiC(nn.Module):
         super().__init__()
         self.dim_features_continuous = config.data.dim.features.continuous
         self.dim_features_discrete = config.data.dim.features.discrete
-        self.vocab_size = config.data.vocab_size.features
+        self.vocab_size = config.data.vocab.size.features
         
         self.epic = EPiC(config)
 

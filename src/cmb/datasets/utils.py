@@ -77,7 +77,6 @@ def flavor_representation(flavor_tensor, charge_tensor, rep='states'):
         return one_hot.long()
     elif rep=='states': 
         state = torch.argmax(one_hot, dim=-1)
-        state += 1
         return state
     
     

@@ -12,7 +12,6 @@ from typing import Union
 from cmb.configs.experiments import Configs, import_model
 from cmb.datasets.dataloader import DataloaderModule
 from cmb.models.utils import Train_Step, Validation_Step, Optimizer, Scheduler, Logger
-from cmb.dynamics.solvers import Pipeline
 
 class GenerativeDynamicsModule:
     """
@@ -100,6 +99,19 @@ class GenerativeDynamicsModule:
         time_steps = torch.linspace(0.0, 1.0 - self.config.pipeline.time_eps, self.config.pipeline.num_timesteps)
         model = self.best_epoch_model if best_epoch_model else self.last_epoch_model
         self.paths, self.jumps = self.dynamics.solver.simulate(model, time_steps=time_steps, **kwargs)
+        
+        if self.paths is not None and self.jumps is None: 
+            sample = self.paths[-1]
+        elif self.paths is None and self.jumps is not None: 
+            sample = self.jumps[-1]
+        elif self.paths is not None and self.jumps is not None: 
+            sample = torch.cat([self.paths[-1], self.jumps[-1]], dim=-1)
+        else: 
+            raise ValueError("Both paths and jumps cannot be None simultaneously.")
+        
+        mask = kwargs.get('mask', None)
+        self.sample = sample if mask is None else torch.cat([sample, mask], dim=-1)
+
 
     def _save_best_epoch_model(self, improved):
         if improved:

@@ -1,30 +1,38 @@
 import torch 
 from dataclasses import dataclass
 from torch.nn import MSELoss, CrossEntropyLoss
-from torch.distributions import Categorical 
 
 from cmb.dynamics.utils import OTPlanSampler
-from cmb.dynamics.processes import TelegraphBridge, LinearBridge, SchrodingerBridge
-from cmb.dynamics.solvers import EulerLeapingSolver
+from cmb.configs.registered import processes, solvers
 
-class ConditionalMarkovBridge :
+class ConditionalMarkovBridge : 
     ''' Conditional Markov Bridge base class for hybrid data
     '''
     def __init__(self, config: dataclass):
 
-        self.config = config.dynamics
-        self.vocab_size = config.data.vocab_size.features
-        
-        #... dynamics:
-        self.ref_bridge_continuous = LinearBridge(config)
-        self.ref_bridge_discrete = TelegraphBridge(config)
+        self.config = config
+        self.vocab_size = config.data.vocab.size.features
 
-        #...solvers:
-        self.solver = EulerLeapingSolver(config=config, rate=self.ref_bridge_discrete.rate)
+        #...define dynamical processes:
+        self.process_continuous = processes['continuous'].get(config.dynamics.continuous.process, None)(config)
+        self.process_discrete = processes['discrete'].get(config.dynamics.discrete.process, None)(config)
 
-        #...losses:
+        #...define solvers:
+        solver = solvers.get(config.pipeline.method)
+        self.solver = solver(config=config, 
+                             dynamics_continuous=self.process_continuous,
+                             dynamics_discrete=self.process_discrete)
+
+        #...define losses:
         self.loss_continuous_fn = MSELoss(reduction='sum')
-        self.loss_discrete_fn = CrossEntropyLoss(reduction='sum', ignore_index=config.data.vocab_size.mask_idx)
+        self.loss_discrete_fn = CrossEntropyLoss(reduction='none')
+        self.weight = config.dynamics.loss_weight
+
+        #...logging:
+        print('INFO: Conditional Markov Bridge initialized...')
+        print('      - continuous process: ', config.dynamics.continuous.process)
+        print('      - discrete process: ', config.dynamics.discrete.process)
+        print('      - solver method: ', config.pipeline.method)
 
     def sample_time(self):
         """ sample time: t ~ U[0,1]
@@ -43,38 +51,44 @@ class ConditionalMarkovBridge :
         self.context_discrete = batch.target_context_discrete if hasattr(batch, 'target_context_discrete') else None
         self.mask = batch.target_mask if hasattr(batch, 'target_mask') else torch.ones_like(self.x0[..., 0]).unsqueeze(-1)
 
-    def sample_bridge(self):
-        self.xt = self.ref_bridge_continuous.sample(t=self.t, x0=self.x0, x1=self.x1)
-        self.kt = self.ref_bridge_discrete.sample(t=self.t, k0=self.k0, k1=self.k1)
+    def sample_bridges(self):
+        ''' sample paths and jumps from bridges
+        '''
+        self.xt = self.process_continuous.sample(t=self.t, x0=self.x0, x1=self.x1) if self.process_continuous else None
+        self.kt = self.process_discrete.sample(t=self.t, k0=self.k0, k1=self.k1) if self.process_discrete else None 
 
     def loss(self, model, batch):
-        """ conditional flow-mathcing MSE loss + jump-matching CE loss
-        """
+        
+        loss = 0.0
         self.sample_coupling(batch)
         self.sample_time() 
-        self.sample_bridge()
+        self.sample_bridges()
 
-        vt, logits = model(t=self.t, 
-                           x=self.xt, 
-                           k=self.kt, 
-                           context_continuous=self.context_continuous, 
-                           context_discrete=self.context_discrete, 
-                           mask=self.mask)
-        
-        logits = logits.reshape(-1, self.vocab_size) 
-        targets = self.k1.reshape(-1).long() 
-        targets = targets.to(logits.device)
+        vector, logits = model(t=self.t, 
+                               x=self.xt, 
+                               k=self.kt, 
+                               context_continuous=self.context_continuous, 
+                               context_discrete=self.context_discrete, 
+                               mask=self.mask)
 
-        ut = self.ref_bridge_continuous.drift(t=self.t, 
-                                              x=self.xt, 
-                                              x0=self.x0, 
-                                              x1=self.x1)
-        ut = ut * self.mask
-        ut = ut.to(vt.device)
-        loss_1 = self.loss_continuous_fn(vt, ut) 
-        loss_2 = self.loss_discrete_fn(logits, targets, )
-        loss = loss_1 + self.config.lam * loss_2
-        return loss / self.mask.sum()
+        if self.process_continuous:
+            ut = self.process_continuous.drift(t=self.t, 
+                                                x=self.xt, 
+                                                x0=self.x0, 
+                                                x1=self.x1).to(vector.device)
+            self.mask = self.mask.to(vector.device)
+            ut *= self.mask
+            loss += self.loss_continuous_fn(vector, ut) / self.mask.sum()
+
+        if self.process_discrete:
+            logits = logits.reshape(-1, self.vocab_size)
+            targets = self.k1.reshape(-1).long() 
+            targets = targets.to(logits.device)
+            self.mask = self.mask.reshape(-1)
+            loss_ce = self.loss_discrete_fn(logits, targets).to(logits.device) * self.mask
+            loss += self.weight * loss_ce.sum() / self.mask.sum()
+
+        return loss
 
     def reshape_time(self, t, x):
         if isinstance(t, (float, int)): return t
@@ -97,13 +111,8 @@ class BatchOTCMB(ConditionalMarkovBridge):
 
 
 class BatchSBCMB(ConditionalMarkovBridge):
-    def __init__(self, config: dataclass):
-        super().__init__(config)
-        self.ref_bridge_continuous = SchrodingerBridge(config)
-        self.ref_bridge_discrete = TelegraphBridge(config)
-
     def sample_coupling(self, batch):
-        regulator = 2 * self.config.sigma**2
+        regulator = 2 * self.config.dynamics.continuous.sigma**2
         SB = OTPlanSampler(reg=regulator)	
         self.x0 = batch.source_continuous
         self.x1 = batch.target_continuous

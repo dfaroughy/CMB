@@ -3,20 +3,18 @@ from dataclasses import dataclass
 from torch.nn.functional import softmax
 from torch.distributions import Categorical 
 
-# from cmb.dynamics.utils import right_shape, right_time_size
-
-class LinearBridge:
-    ''' Linear bridge for continuous states. 
-        Equivalent to vanilla Flow-matching
+class FlowMatching:
+    ''' Conditional Flow-Matching for continuous states. 
     '''
     def __init__(self, config: dataclass):
-        self.config = config.dynamics
+        self.config = config.dynamics.continuous
         self.time_epsilon = config.pipeline.time_eps
 
     def sample(self, t, x0, x1):
         x = t * x1 + (1. - t) * x0
+        z = torch.randn_like(x)
         std = self.config.sigma 
-        return x + std * torch.randn_like(x)
+        return x + std * z
 
     def drift(self, t, x, x0, x1):
         A = 0.0
@@ -25,19 +23,20 @@ class LinearBridge:
         return A * x + B * x1 + C * x0
 
     def diffusion(self, t):
-        return self.config.sigma
+        return 0.0
     
 class SchrodingerBridge:
     ''' Schrodinger bridge for continuous states
     '''
     def __init__(self, config: dataclass):
-        self.config = config.dynamics
+        self.config = config.dynamics.continuous
         self.time_epsilon = config.pipeline.time_eps
 
     def sample(self, t, x0, x1):
         x = t * x1 + (1. - t) * x0
+        z = torch.randn_like(x)
         std = self.config.sigma * torch.sqrt(t * (1. - t))
-        return x + std * torch.randn_like(x)
+        return x + std * z
 
     def drift(self, t, x, x0, x1):
         A = (1 - 2 * t) / ( t * (1 - t))
@@ -49,43 +48,42 @@ class SchrodingerBridge:
         return self.config.sigma * torch.sqrt(t * (1. - t))
 
 
-class TelegraphBridge:
-    ''' Multivariate Telegraph Bridge for discrete states
+class TelegraphProcess:
+    ''' Multivariate Telegraph Process for discrete states
     '''
     def __init__(self, config: dataclass):
-        self.config = config.dynamics
-        self.vocab_size = config.data.vocab_size.features
+        self.config = config.dynamics.discrete
         self.time_epsilon = config.pipeline.time_eps
-        self.ignore_idx = config.data.vocab_size.mask_idx
+        self.vocab_size = config.data.vocab.size.features
     
     def sample(self, t, k0, k1):
-        transition_probs = self.probability(t, k0, k1)
+        transition_probs = self.transition_probability(t, k0, k1)
         return Categorical(transition_probs).sample().to(k1.device)
     
-    def rate(self, t, k, logits, ignore_idx=0):
+    def rate(self, t, k, logits):
+        ''' t: (b, 1) time tensor
+            k: (b, n, 1) current state tensor
+            logits: (b, n, vocab_size) logits tensor
+        '''
 
-        logits[..., ignore_idx] = float('-inf')               # ignore zero-padding
-    
-        qx = softmax(logits, dim=2)                           # softmax to get the transition probabilities for all states
-        qy = torch.gather(qx, 2, k.long().unsqueeze(-1))       # get probabilities for the current state `k`
+        assert (k >= 0).all() and (k < self.vocab_size).all(), "Values in `k` outside of bound!"
+        
+        qx = softmax(logits, dim=2)             # softmax to get the transition probabilities for all states
+        qy = torch.gather(qx, 2, k.long())      # get probabilities for the current state `k`
 
-        #...apply the Telegraph rates:
+        #...Telegraph process rates:
 
-        S = self.vocab_size - 1                               # -1 ignore zero-padding
+        S = self.vocab_size                             
         t = t.squeeze()
         t1 = 1. - self.time_epsilon
         wt = torch.exp(-S * self.config.gamma * (t1 - t) )
         A = 1.0
         B = (wt * S) / (1. - wt)
         C = wt
-
         rate = A + B[:, None, None] * qx + C[:, None, None] * qy
-        mask = (k != ignore_idx).float().unsqueeze(-1)                  # Mask for ignoring transitions from ignored states
-        rate = rate * mask                                              # Zero out the rates for transitions involving ignored states
-
         return rate
 
-    def probability(self, t, k0, k1):
+    def transition_probability(self, t, k0, k1):
         """
         \begin{equation}
         P(x_t=x|x_0,x_1) = \frac{p(x_1|x_t=x) p(x_t = x|x_0)}{p(x_1|x_0)}
@@ -120,7 +118,7 @@ class TelegraphBridge:
         \end{equation}
 
         """
-        S = self.vocab_size - 1
+        S = self.vocab_size
         t_out = right_time_size(t_out, k_out).to(k_in.device)
         t_in = right_time_size(t_in, k_out).to(k_in.device)
         w_t = torch.exp(- S * self.config.gamma * (t_out - t_in))
@@ -131,9 +129,3 @@ class TelegraphBridge:
 
 right_shape = lambda x: x if len(x.shape) == 3 else x[:, :, None]
 right_time_size = lambda t, x: t if isinstance(t, torch.Tensor) else torch.full((x.size(0),), t).to(x.device)
-
-def where_to_go_x(x, vocab_size):
-    x_to_go = torch.arange(0, vocab_size)
-    x_to_go = x_to_go[None, None, :].repeat((x.size(0), x.size(1), 1)).float()
-    x_to_go = x_to_go.to(x.device)
-    return x_to_go
