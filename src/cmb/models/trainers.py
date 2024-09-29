@@ -9,26 +9,24 @@ from pathlib import Path
 from copy import deepcopy
 from typing import Union
 
-from cmb.configs.experiments import Configs, import_model
+from cmb.configs.utils import Configs
 from cmb.datasets.dataloader import DataloaderModule
 from cmb.models.utils import Train_Step, Validation_Step, Optimizer, Scheduler, Logger
+from cmb.configs.registered_generative_dynamics import dynamics
+from cmb.configs.registered_models import models
 
-class GenerativeDynamicsModule:
+class GenerativeDynamicsModule: 
+    """ Trainer for dynamic generative models
     """
-    Trainer for dynamic generative models. e.g. CFM
-    
-    Attributes:
-    - dynamics: The model dynamics to train.
-    - dataloader: DataLoader providing training and optionally validation data.
-    - config: Configuration dataclass containing training configurations.
-    """
-
     def __init__(self, 
                  config: Union[Configs, str]=None, 
                  dataclass=None):
 
         self.dataclass = dataclass
-        self.config, self.model, self.dynamics = import_model(config=config)
+        if isinstance(config, str): config = Configs(config)                      # get configs form yaml
+        self.config = config 
+        self.dynamics = dynamics.get(config.dynamics.name)(self.config)           # get generative dynamical model from config
+        self.model = models.get(config.model.name)(self.config)                   # get NN from configs
         self.model = self.model.to(torch.device(self.config.train.device))
         self.workdir = Path(self.config.experiment.workdir) / Path(self.config.data.dataset) / Path(self.config.experiment.name)
 
@@ -44,7 +42,6 @@ class GenerativeDynamicsModule:
         print_epochs = 1 if self.config.train.print_epochs is None else self.config.train.print_epochs
 
         #...logging:
-        
         os.makedirs(self.workdir, exist_ok=True)
         self.config.save(self.workdir / 'config.yaml')
         self.logger = Logger(self.workdir / 'training.log')
@@ -60,7 +57,6 @@ class GenerativeDynamicsModule:
             self.model = DataParallel(self.model)
 
         #...train loop:
-            
         dataloader = DataloaderModule(self.config, self.dataclass)
 
         for epoch in tqdm(range(self.config.train.epochs), desc="epochs"):
@@ -111,6 +107,7 @@ class GenerativeDynamicsModule:
         
         mask = kwargs.get('mask', None)
         self.sample = sample if mask is None else torch.cat([sample, mask], dim=-1)
+        del self.paths, self.jumps
 
 
     def _save_best_epoch_model(self, improved):

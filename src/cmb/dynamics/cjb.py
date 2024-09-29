@@ -1,6 +1,5 @@
 import torch 
 from dataclasses import dataclass
-from cmb.dynamics.utils import right_shape, right_time_size
 from torch.nn import CrossEntropyLoss 
 from torch.distributions import Categorical 
 

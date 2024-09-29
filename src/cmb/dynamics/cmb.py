@@ -3,7 +3,8 @@ from dataclasses import dataclass
 from torch.nn import MSELoss, CrossEntropyLoss
 
 from cmb.dynamics.utils import OTPlanSampler
-from cmb.configs.registered import processes, solvers
+from cmb.configs.registered_processes import processes
+from cmb.configs.registered_solvers import solvers
 
 class ConditionalMarkovBridge : 
     ''' Conditional Markov Bridge base class for hybrid data
@@ -13,11 +14,11 @@ class ConditionalMarkovBridge :
         self.config = config
         self.vocab_size = config.data.vocab.size.features
 
-        #...define dynamical processes:
+        #...get dynamical process from config:
         self.process_continuous = processes['continuous'].get(config.dynamics.continuous.process, None)(config)
         self.process_discrete = processes['discrete'].get(config.dynamics.discrete.process, None)(config)
 
-        #...define solvers:
+        #...get solver from config:
         solver = solvers.get(config.pipeline.method)
         self.solver = solver(config=config, 
                              dynamics_continuous=self.process_continuous,
@@ -110,16 +111,16 @@ class BatchOTCMB(ConditionalMarkovBridge):
         self.mask = batch.target_mask if hasattr(batch, 'target_mask') else torch.ones_like(self.x0[..., 0]).unsqueeze(-1)
 
 
-class BatchSBCMB(ConditionalMarkovBridge):
+class BatchRegOTCMB(ConditionalMarkovBridge):
     def sample_coupling(self, batch):
         regulator = 2 * self.config.dynamics.continuous.sigma**2
-        SB = OTPlanSampler(reg=regulator)	
+        ROT = OTPlanSampler(reg=regulator)	
         self.x0 = batch.source_continuous
         self.x1 = batch.target_continuous
         self.k0 = batch.source_discrete
         self.k1 = batch.target_discrete
-        pi = SB.get_map(self.x0, self.x1)
-        idx_0, idx_1 = SB.sample_map(pi, self.x0.shape[0], replace=False)
+        pi = ROT.get_map(self.x0, self.x1)
+        idx_0, idx_1 = ROT.sample_map(pi, self.x0.shape[0], replace=False)
         self.x0, self.x1 = self.x0[idx_0], self.x1[idx_1]
         self.k0, self.k1 = self.k0[idx_0], self.k1[idx_1]
         self.context_continuous = batch.target_context_continuous if hasattr(batch, 'target_context_continuous') else None

@@ -160,3 +160,6 @@ class MultiHeadAttention(nn.Module):
         return h
 
 
+
+class HybridParticleTransformer(nn.Module):
+    def __init__(self, config):

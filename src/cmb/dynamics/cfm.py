@@ -69,11 +69,11 @@ class BatchOTCFM(ConditionalFlowMatching):
 		self.context_discrete = batch.target_discrete if hasattr(batch, 'target_context_discrete') else None
 		self.mask = batch.mask if hasattr(batch, 'mask') else None
 
-class BatchSBCFM(ConditionalFlowMatching):
+class BatchRegOTCFM(ConditionalFlowMatching):
 	def sample_coupling(self, batch):
 		regulator = 2 * self.config.sigma**2
-		SB = OTPlanSampler(reg=regulator)
-		self.x0, self.x1 = SB.sample_plan(batch.source_continuous, batch.target_continuous)	
+		ROT = OTPlanSampler(reg=regulator)
+		self.x0, self.x1 = ROT.sample_plan(batch.source_continuous, batch.target_continuous)	
 		self.context_continuous = batch.target_context if hasattr(batch, 'target_context_continuous') else None
 		self.context_discrete = batch.target_discrete if hasattr(batch, 'target_context_discrete') else None
 		self.mask = batch.mask if hasattr(batch, 'mask') else None

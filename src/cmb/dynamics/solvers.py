@@ -2,34 +2,34 @@ import torch
 import torch.nn as nn
 from dataclasses import dataclass
 
-class Pipeline:
-    ''' Dynamics simmulation pipeline for generating samples
-    '''
-    def __init__(self, 
-                 trained_model,
-                 best_epoch_model: bool=True
-                 ):
+# class Pipeline:
+#     ''' Dynamics simmulation pipeline for generating samples
+#     '''
+#     def __init__(self, 
+#                  trained_model,
+#                  best_epoch_model: bool=True
+#                  ):
 
-        self.config = trained_model.config
-        self.model = trained_model.best_epoch_model if best_epoch_model else trained_model.last_epoch_model
-        self.dynamics = trained_model.dynamics
-        self.time_steps = torch.linspace(0.0, 1.0 - self.config.pipeline.time_eps, self.config.pipeline.num_timesteps)
+#         self.config = trained_model.config
+#         self.model = trained_model.best_epoch_model if best_epoch_model else trained_model.last_epoch_model
+#         self.dynamics = trained_model.dynamics
+#         self.time_steps = torch.linspace(0.0, 1.0 - self.config.pipeline.time_eps, self.config.pipeline.num_timesteps)
 
-        #...solvers:
-        self.registered_solvers = {'EulerSolver': EulerSolver,
-                                   'EulerMaruyamaSolver': EulerMaruyamaSolver,
-                                   'TauLeapingSolver': TauLeapingSolver,
-                                   'EulerLeapingSolver': EulerLeapingSolver,
-                                   'EulerMaruyamaLeapingSolver': EulerMaruyamaLeapingSolver}
+#         #...solvers:
+#         self.registered_solvers = {'EulerSolver': EulerSolver,
+#                                    'EulerMaruyamaSolver': EulerMaruyamaSolver,
+#                                    'TauLeapingSolver': TauLeapingSolver,
+#                                    'EulerLeapingSolver': EulerLeapingSolver,
+#                                    'EulerMaruyamaLeapingSolver': EulerMaruyamaLeapingSolver}
         
-        self.solver = self.registered_solvers.get(self.config.pipeline.method)
+#         self.solver = self.registered_solvers.get(self.config.pipeline.method)
 
-    @torch.no_grad()
-    def generate_samples(self, **source):
-        ''' Generate samples from the model using the pipeline method.
-        '''
-        solver = self.solver(config=self.config, model=self.model, dynamics=self.dynamics)
-        self.paths, self.jumps = solver.simulate(time_steps=self.time_steps, **source)
+#     @torch.no_grad()
+#     def generate_samples(self, **source):
+#         ''' Generate samples from the model using the pipeline method.
+#         '''
+#         solver = self.solver(config=self.config, model=self.model, dynamics=self.dynamics)
+#         self.paths, self.jumps = solver.simulate(time_steps=self.time_steps, **source)
         
 
 class EulerSolver:

@@ -1,5 +1,6 @@
 import yaml
 import numpy as np
+import random 
 from datetime import datetime
 from typing import Union
 from pathlib import Path
@@ -11,25 +12,23 @@ class Configs:
                 config_dict = yaml.safe_load(f)
                         
         elif isinstance(config_source, dict):
-            # If config_source is a dict, use it directly
             config_dict = config_source
         else:
             raise ValueError("config_source must be a file path or a dictionary")
         
-        # Recursively set attributes
-        self._set_attributes(config_dict)
+        self._set_attributes(config_dict) # set attributes recursively 
         
         if hasattr(self, 'experiment'):
             if not hasattr(self.experiment, 'name'):
                 self.experiment.name = f"{self.data.source.name}_to_{self.data.target.name}_{self.dynamics.name}_{self.model.name}"
                 time = datetime.now().strftime("%Y.%m.%d_%Hh%M")
-                self.experiment.name += f"_{time}"
+                rnd = random.randint(0, 10000)
+                self.experiment.name += f"_{time}_{rnd}"
                 print('INFO: created experiment instance {}'.format(self.experiment.name)) 
 
     def _set_attributes(self, config_dict):
         for key, value in config_dict.items():
-            if isinstance(value, dict):
-                # Create a sub-config object
+            if isinstance(value, dict):  # create a sub-config object
                 sub_config = Configs(value)
                 setattr(self, key, sub_config)
             else:
@@ -93,17 +92,17 @@ class Configs:
         with open(path, 'w') as f:
             yaml.dump(config_dict, f, default_flow_style=False)
             
-def import_model(config: Union[Configs, str]):
+# def import_model(config: Union[Configs, str]):
 
-    from cmb.dynamics.cfm import ConditionalFlowMatching, BatchOTCFM, BatchSBCFM
-    from cmb.dynamics.cmb import ConditionalMarkovBridge, BatchOTCMB, BatchSBCMB
-    from cmb.models.architectures.deep_nets import MLP, HybridMLP, ClassifierMLP
-    from cmb.models.architectures.epic import EPiC, HybridEPiC
+#     from cmb.dynamics.cfm import ConditionalFlowMatching, BatchOTCFM, BatchSBCFM
+#     from cmb.dynamics.cmb import ConditionalMarkovBridge, BatchOTCMB, BatchSBCMB
+#     from cmb.models.architectures.deep_nets import MLP, HybridMLP, ClassifierMLP
+#     from cmb.models.architectures.epic import EPiC, HybridEPiC
 
-    if isinstance(config, str):
-        config = Configs(config)
+#     if isinstance(config, str):
+#         config = Configs(config)
 
-    model = locals()[config.model.name](config)
-    dynamics = locals()[config.dynamics.name](config)
-    print('      - model: {}'.format(config.model.name))
-    return config, model, dynamics, 
+#     model = locals()[config.model.name](config)
+#     dynamics = locals()[config.dynamics.name](config)
+#     print('      - model: {}'.format(config.model.name))
+#     return config, model, dynamics, 
