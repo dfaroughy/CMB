@@ -21,7 +21,7 @@ class Train_Step(nn.Module):
         self.epoch = 0
         self.losses = []
 
-    def update(self, model, loss_fn, dataloader: DataLoader, optimizer):
+    def update(self, model, loss_fn, dataloader: DataLoader, optimizer, scheduler):
         self.loss = 0
         self.epoch += 1
         model.train()
@@ -29,7 +29,8 @@ class Train_Step(nn.Module):
             optimizer.zero_grad()
             loss_current = loss_fn(model, batch)
             loss_current.backward()
-            optimizer.step()  
+            optimizer.step()
+            scheduler.step()
             self.loss += loss_current.detach().cpu().numpy() / len(dataloader)
         self.losses.append(self.loss) 
 
@@ -86,34 +87,18 @@ class Optimizer:
         self.config = config
 
     def __call__(self, parameters):
-        # Convert the config to a dictionary
         config_dict = self.config.to_dict()
-
-        # Get the optimizer name dynamically
         optimizer_name = self._get_optimizer_name(config_dict)
-
-        # Get the optimizer class from torch.optim
         optimizer_cls = self._get_optimizer_class(optimizer_name)
-
-        # Get valid arguments for the optimizer constructor
         valid_args = self._get_valid_args(optimizer_cls)
-
-        # Filter config_dict to include only valid arguments
         optimizer_args = {k: v for k, v in config_dict.items() if k in valid_args}
-
-        # Extract gradient clipping value if present
         self.gradient_clip = config_dict.get('gradient_clip', None)
-
-        # Create the optimizer instance
         optimizer = optimizer_cls(parameters, **optimizer_args)
-
-        # Override optimizer.step() to include gradient clipping
         optimizer = self._wrap_optimizer_step(optimizer)
 
         return optimizer
 
     def _wrap_optimizer_step(self, optimizer):
-        # Original optimizer step function
         original_step = optimizer.step
 
         def step_with_clipping(closure=None):
@@ -124,9 +109,7 @@ class Optimizer:
         return optimizer
 
     def _get_optimizer_name(self, config_dict):
-        # Get a list of all optimizer class names in torch.optim
         optimizer_names = [cls_name for cls_name in dir(torch.optim) if isinstance(getattr(torch.optim, cls_name), type)]
-        # Find keys in config_dict that are not valid optimizer arguments
         possible_names = set(config_dict.keys()) - set(self._get_all_optimizer_args())
 
         for key in possible_names:
@@ -144,14 +127,11 @@ class Optimizer:
             raise ValueError(f"Unsupported optimizer: {optimizer_name}")
 
     def _get_valid_args(self, optimizer_cls):
-        # Get the signature of the optimizer class
         signature = inspect.signature(optimizer_cls.__init__)
-        # Exclude 'self' and 'params' from the parameters
         valid_args = [p.name for p in signature.parameters.values() if p.name not in ['self', 'params']]
         return valid_args
 
     def _get_all_optimizer_args(self):
-        # Get all valid arguments from all optimizers in torch.optim
         all_args = set()
         for attr_name in dir(torch.optim):
             attr = getattr(torch.optim, attr_name)
@@ -213,6 +193,8 @@ class Scheduler:
     def get_scheduler(self, optimizer):
         args = self.config.to_dict()
         if self.config.name == 'CosineAnnealingLR': return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, **args)
+        elif self.config.name == 'CosineAnnealingWarmRestarts': return torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, **args)
+        elif self.config.name == 'CosineWarmupScheduler': return CosineWarmupScheduler(optimizer, **args)
         elif self.config.name == 'StepLR': return torch.optim.lr_scheduler.StepLR(optimizer, **args)
         elif self.config.name == 'ExponentialLR': return torch.optim.lr_scheduler.ExponentialLR(optimizer, **args)
         elif self.config.name is None: return NoScheduler(optimizer)
@@ -224,6 +206,25 @@ class Scheduler:
 class NoScheduler:
     def __init__(self, optimizer): pass
     def step(self): pass    
+
+
+from torch.optim.lr_scheduler import _LRScheduler
+
+class CosineWarmupScheduler(_LRScheduler):
+    def __init__(self, optimizer, warmup, max_iters):
+        self.warmup = warmup
+        self.max_num_iters = max_iters
+        super().__init__(optimizer)
+
+    def get_lr(self):
+        lr_factor = self.get_lr_factor(epoch=self.last_epoch)
+        return [base_lr * lr_factor for base_lr in self.base_lrs]
+
+    def get_lr_factor(self, epoch):
+        lr_factor = 0.5 * (1 + np.cos(np.pi * epoch / self.max_num_iters))
+        if epoch <= self.warmup:
+            lr_factor *= epoch * 1.0 / self.warmup
+        return lr_factor
 
 
 class Logger:

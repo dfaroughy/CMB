@@ -44,6 +44,7 @@ class EulerSolver:
                  source_continuous, 
                  context_continuous=None, 
                  context_discrete=None,
+                 output_final_state=False,
                  mask=None):
         
         model = model.to(self.device)
@@ -54,7 +55,7 @@ class EulerSolver:
         mask = mask.to(self.device) if mask is not None else None
         
         delta_t = (time_steps[-1] - time_steps[0]) / (len(time_steps) - 1)
-        paths = [x.clone()]
+        paths = x.clone() if output_final_state else [x.clone()]
 
         for time in time_steps[1:]:
             time = torch.full((x.size(0), 1), time.item(), device=self.device)
@@ -65,7 +66,10 @@ class EulerSolver:
                             mask=mask).to(self.device)
             x += delta_t * vector
             x *= mask
-            paths.append(x.clone())
+            if output_final_state:
+                paths = x.clone()
+            else:
+                paths.append(x.clone())
         
         paths = torch.stack(paths)
         return paths.detach().cpu(), None
@@ -186,6 +190,7 @@ class EulerLeapingSolver:
                  context_continuous=None, 
                  context_discrete=None, 
                  mask=None, 
+                 output_paths=False,
                  max_rate_last_step=False):
         
         model = model.to(self.device)
@@ -197,7 +202,7 @@ class EulerLeapingSolver:
         mask = mask.to(self.device) if mask is not None else None
 
         delta_t = (time_steps[-1] - time_steps[0]) / (len(time_steps) - 1)
-        paths, jumps = [x.clone()], [k.clone()]
+        paths, jumps = ([x.clone()], [k.clone()]) if output_paths else x.clone(), k.clone()
 
         for time in time_steps[1:]:
 
@@ -226,18 +231,18 @@ class EulerLeapingSolver:
             k = torch.clamp(k, min=0, max=self.vocab_size-1)    
             k = k.unsqueeze(-1)
             k *= mask
-            jumps.append(k.clone())
 
             #...euler step:
             x += delta_t * vector
             x *= mask
-            paths.append(x.clone())
-        
-        paths = torch.stack(paths)
-        jumps = torch.stack(jumps)
 
-        if max_rate_last_step:
-            jumps[-1] = max_rate # replace last jump with max rates
+            if output_paths:
+                paths.append(x.clone())
+                jumps.append(k.clone())
+                paths = torch.stack(paths)
+                jumps = torch.stack(jumps)
+            else:
+                paths, jumps = x.clone(), k.clone()
 
         return paths.detach().cpu(), jumps.detach().cpu()
     

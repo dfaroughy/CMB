@@ -13,7 +13,7 @@ data:
       num_jets: null
       path:
         - /home/df630/CMB/data/JetClass/TTBar_000.root
-        - /home/df630/CMB/data/JetClass/TTBar_001.root
+        # - /home/df630/CMB/data/JetClass/TTBar_001.root
     test:
       num_jets: null
       path:
@@ -57,13 +57,13 @@ model:
     embed:
       time: 32
       features:
-        continuous: 32
+        continuous: 64
         discrete: 32
       context:
         continuous: 0
         discrete: 0
     hidden: 
-      local: 256
+      local: 128
       glob: 16
 
   embed_type:
@@ -76,7 +76,7 @@ model:
       discrete: null
 
   skip_connection: true
-  dropout: 0.1
+  dropout: 0.15
   activation: SELU
 
 #...Dynamics parameters
@@ -87,11 +87,11 @@ dynamics:
 
   continuous:
     process: FlowMatching
-    sigma: 1.0e-5
+    sigma: 0.0001
 
   discrete:
     process: TelegraphProcess
-    gamma: 0.01
+    gamma: 0.125
 
 #...Pipeline generation parameters
 
@@ -107,7 +107,7 @@ train:
   multi_gpu: false
   batch_size: 1048
   data_split_frac: [0.9, 0.1, 0.0]  # train / val / test
-  epochs: 20
+  epochs: 100
   early_stopping: null
   min_epochs: null
   print_epochs: null
@@ -115,18 +115,19 @@ train:
   pin_memory: false
 
   optimizer:
-    name: Adam
-    lr: 0.0002
-    weight_decay: 0.0
-    betas: [0.9, 0.999]
-    eps: 1.e-8
-    amsgrad: false
-    gradient_clip: null
+    name: AdamW
+    params:
+      lr: 0.001
+      weight_decay: 5.0e-5
+      betas: [0.9, 0.999]
+      eps: 1.e-8
+      amsgrad: false
+    gradient_clip: 1.0
 
   scheduler: 
-    name: null
-    t_max: null
-    eta_min: null
-    gamma: null
-    step_size: null
+    name: CosineAnnealingWarmup
+    params: 
+      warmup: 20
+      T_max: 500
+
 

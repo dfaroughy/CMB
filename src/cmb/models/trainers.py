@@ -9,11 +9,16 @@ from pathlib import Path
 from copy import deepcopy
 from typing import Union
 
+from cmb.utils.training import Train_Step, Validation_Step
+from cmb.utils.optimizers import Optimizer
+# from cmb.utils.schedulers import Scheduler
+from cmb.utils.loggers import Logger
+
 from cmb.configs.utils import Configs
 from cmb.datasets.dataloader import DataloaderModule
-from cmb.models.utils import Train_Step, Validation_Step, Optimizer, Scheduler, Logger
 from cmb.configs.registered_generative_dynamics import dynamics
 from cmb.configs.registered_models import models
+from cmb.configs.registered_optimizers import optimizers, schedulers
 
 class GenerativeDynamicsModule: 
     """ Trainer for dynamic generative models
@@ -35,8 +40,8 @@ class GenerativeDynamicsModule:
         #...train config:
         train = Train_Step()
         valid = Validation_Step()
-        optimizer = Optimizer(self.config.train.optimizer)(self.model.parameters())
-        scheduler = Scheduler(self.config.train.scheduler)(optimizer)
+        optimizer = optimizers.get(self.config.train.optimizer.name)(self.model.parameters(), **self.config.train.optimizer.params.to_dict())
+        scheduler = schedulers.get(self.config.train.scheduler.name)(optimizer=optimizer, **self.config.train.scheduler.params.to_dict())
         early_stopping = self.config.train.epochs if self.config.train.early_stopping is None else self.config.train.early_stopping
         min_epochs = 0 if self.config.train.min_epochs is None else self.config.train.min_epochs
         print_epochs = 1 if self.config.train.print_epochs is None else self.config.train.print_epochs
@@ -52,6 +57,7 @@ class GenerativeDynamicsModule:
         self.logger.logfile_and_console("INFO: start training...")
 
         #...multi-gpu:
+        # TODO fix multi-gpu training
         if self.config.train.multi_gpu and torch.cuda.device_count() > 1:
             print("INFO: using ", torch.cuda.device_count(), "GPUs...")
             self.model = DataParallel(self.model)
@@ -60,12 +66,13 @@ class GenerativeDynamicsModule:
         dataloader = DataloaderModule(self.config, self.dataclass)
 
         for epoch in tqdm(range(self.config.train.epochs), desc="epochs"):
-            train.update(model=self.model, loss_fn=self.dynamics.loss, dataloader=dataloader.train, optimizer=optimizer) 
+            train.update(model=self.model, loss_fn=self.dynamics.loss, dataloader=dataloader.train, optimizer=optimizer, scheduler=scheduler) 
             valid.update(model=self.model, loss_fn=self.dynamics.loss, dataloader=dataloader.valid)
             TERMINATE, IMPROVED = valid.checkpoint(min_epochs=min_epochs, early_stopping=early_stopping)
-            scheduler.step() 
+            # scheduler.step() 
             self._log_losses(train, valid, epoch, print_epochs)
-            self._save_best_epoch_model(epoch, IMPROVED)
+            self._save_best_epoch_ckpt(IMPROVED)
+            self._save_last_epoch_ckpt()
             
             if TERMINATE: 
                 stop_message = "early stopping triggered! Reached maximum patience at {} epochs".format(epoch)
@@ -74,7 +81,7 @@ class GenerativeDynamicsModule:
             
         self._save_last_epoch_ckpt()
         self._save_best_epoch_ckpt(not bool(dataloader.valid)) # best = last epoch if there is no validation, needed as a placeholder for pipeline
-        self.plot_loss(valid_loss=valid.losses, train_loss=train.losses)
+        self.plot_loss = self._plot_loss(valid_loss=valid.losses, train_loss=train.losses)
         self.logger.close()
         
     def load(self, checkpoint: str='best'):
@@ -95,7 +102,7 @@ class GenerativeDynamicsModule:
             self.checkpoint.load_state_dict(torch.load(self.workdir/f'{checkpoint}.ckpt', map_location=(torch.device('cpu') if self.config.train.device=='cpu' else None)))
 
     @torch.no_grad()
-    def generate(self, **kwargs):
+    def generate(self, output_paths=False, **kwargs):
         print('INFO: generating samples...') 
 
         if hasattr(self, 'best_epoch_ckpt'):  model = self.best_epoch_ckpt 
@@ -103,14 +110,16 @@ class GenerativeDynamicsModule:
         else:  model = self.checkpoint
 
         time_steps = torch.linspace(0.0, 1.0 - self.config.pipeline.time_eps, self.config.pipeline.num_timesteps)
-        self.paths, self.jumps = self.dynamics.solver.simulate(model, time_steps=time_steps, **kwargs)
-        
+        self.paths, self.jumps = self.dynamics.solver.simulate(model, 
+                                                               time_steps=time_steps, 
+                                                               output_paths=output_paths,  
+                                                               **kwargs)
         if self.paths is not None and self.jumps is None: 
-            sample = self.paths[-1]
+            sample = self.paths[-1] if output_paths else self.paths
         elif self.paths is None and self.jumps is not None: 
-            sample = self.jumps[-1]
+            sample = self.jumps[-1] if output_paths else self.jumps
         elif self.paths is not None and self.jumps is not None: 
-            sample = torch.cat([self.paths[-1], self.jumps[-1]], dim=-1)
+            sample = torch.cat([self.paths[-1], self.jumps[-1]], dim=-1) if output_paths else torch.cat([self.paths, self.jumps], dim=-1)
         else: 
             raise ValueError("Both paths and jumps cannot be None simultaneously.")
         
@@ -119,9 +128,9 @@ class GenerativeDynamicsModule:
         del self.paths, self.jumps
 
 
-    def _save_best_epoch_ckpt(self, epoch, improved):
+    def _save_best_epoch_ckpt(self, improved):
         if improved:
-            torch.save(self.model.state_dict(), self.workdir/f'best_epoch_{epoch}.ckpt')
+            torch.save(self.model.state_dict(), self.workdir/f'best_epoch.ckpt')
             self.best_epoch_ckpt= deepcopy(self.model)
         else: pass
 
@@ -133,10 +142,10 @@ class GenerativeDynamicsModule:
         message = "\tEpoch: {}, train loss: {}, valid loss: {}  (min valid loss: {})".format(epoch, train.loss, valid.loss, valid.loss_min)
         self.logger.logfile.info(message)
         if epoch % print_epochs == 1:            
-            self.plot_loss(valid_loss=valid.losses, train_loss=train.losses)
+            self._plot_loss(valid_loss=valid.losses, train_loss=train.losses)
             self.logger.console.info(message)
 
-    def plot_loss(self, valid_loss, train_loss):
+    def _plot_loss(self, valid_loss, train_loss):
         fig, ax = plt.subplots(figsize=(4,3))
         ax.plot(range(len(valid_loss)), np.array(valid_loss), color='r', lw=1, linestyle='-', label='Validation')
         ax.plot(range(len(train_loss)), np.array(train_loss), color='b', lw=1, linestyle='--', label='Training', alpha=0.8)
