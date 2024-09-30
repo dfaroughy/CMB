@@ -65,35 +65,44 @@ class GenerativeDynamicsModule:
             TERMINATE, IMPROVED = valid.checkpoint(min_epochs=min_epochs, early_stopping=early_stopping)
             scheduler.step() 
             self._log_losses(train, valid, epoch, print_epochs)
-            self._save_best_epoch_model(IMPROVED)
+            self._save_best_epoch_model(epoch, IMPROVED)
             
             if TERMINATE: 
                 stop_message = "early stopping triggered! Reached maximum patience at {} epochs".format(epoch)
                 self.logger.logfile_and_console(stop_message)
                 break
             
-        self._save_last_epoch_model()
-        self._save_best_epoch_model(not bool(dataloader.valid)) # best = last epoch if there is no validation, needed as a placeholder for pipeline
+        self._save_last_epoch_ckpt()
+        self._save_best_epoch_ckpt(not bool(dataloader.valid)) # best = last epoch if there is no validation, needed as a placeholder for pipeline
         self.plot_loss(valid_loss=valid.losses, train_loss=train.losses)
         self.logger.close()
         
-    def load(self, best_epoch_model: bool=True):
-        if best_epoch_model:
+    def load(self, checkpoint: str='best'):
+        if checkpoint=='best':
             print('INFO: loading `best` epoch checkpoint from:') 
-            print('  - {}'.format(self.workdir/'best_epoch_model.pth'))
-            self.best_epoch_model = type(self.model)(self.config)
-            self.best_epoch_model.load_state_dict(torch.load(self.workdir/'best_epoch_model.pth', map_location=(torch.device('cpu') if self.config.train.device=='cpu' else None)))
-        else:
+            print('  - {}'.format(self.workdir/'best_epoch.ckpt'))
+            self.best_epoch_ckpt = type(self.model)(self.config)
+            self.best_epoch_ckpt.load_state_dict(torch.load(self.workdir/'best_epoch.ckpt', map_location=(torch.device('cpu') if self.config.train.device=='cpu' else None)))
+        elif checkpoint=='last':
             print('INFO: loading `last` epoch checkpoint from:') 
-            print('  - {}'.format(self.workdir/'last_epoch_model.pth'))
-            self.last_epoch_model = type(self.model)(self.config)
-            self.last_epoch_model.load_state_dict(torch.load(self.workdir/'last_epoch_model.pth', map_location=(torch.device('cpu') if self.config.train.device=='cpu' else None)))
+            print('  - {}'.format(self.workdir/'last_epoch.ckpt'))
+            self.last_epoch_ckpt = type(self.model)(self.config)
+            self.last_epoch_ckpt.load_state_dict(torch.load(self.workdir/'last_epoch.ckpt', map_location=(torch.device('cpu') if self.config.train.device=='cpu' else None)))
+        else:
+            print(f'INFO: loading `{checkpoint}` checkpoint from:') 
+            print('  - {}'.format(self.workdir/f'{checkpoint}.ckpt'))
+            self.checkpoint = type(self.model)(self.config)
+            self.checkpoint.load_state_dict(torch.load(self.workdir/f'{checkpoint}.ckpt', map_location=(torch.device('cpu') if self.config.train.device=='cpu' else None)))
 
     @torch.no_grad()
-    def generate(self, best_epoch_model: bool=True, **kwargs):
-        assert hasattr(self, 'best_epoch_model') or hasattr(self, 'last_epoch_model'), "ERROR: No model checkpoint found. Please load a trained model first."
+    def generate(self, **kwargs):
+        print('INFO: generating samples...') 
+
+        if hasattr(self, 'best_epoch_ckpt'):  model = self.best_epoch_ckpt 
+        elif hasattr(self, 'last_epoch_ckpt'):  model = self.last_epoch_ckpt
+        else:  model = self.checkpoint
+
         time_steps = torch.linspace(0.0, 1.0 - self.config.pipeline.time_eps, self.config.pipeline.num_timesteps)
-        model = self.best_epoch_model if best_epoch_model else self.last_epoch_model
         self.paths, self.jumps = self.dynamics.solver.simulate(model, time_steps=time_steps, **kwargs)
         
         if self.paths is not None and self.jumps is None: 
@@ -110,15 +119,15 @@ class GenerativeDynamicsModule:
         del self.paths, self.jumps
 
 
-    def _save_best_epoch_model(self, improved):
+    def _save_best_epoch_ckpt(self, epoch, improved):
         if improved:
-            torch.save(self.model.state_dict(), self.workdir/'best_epoch_model.pth')
-            self.best_epoch_model = deepcopy(self.model)
+            torch.save(self.model.state_dict(), self.workdir/f'best_epoch_{epoch}.ckpt')
+            self.best_epoch_ckpt= deepcopy(self.model)
         else: pass
 
-    def _save_last_epoch_model(self):
-        torch.save(self.model.state_dict(), self.workdir/'last_epoch_model.pth') 
-        self.last_epoch_model = deepcopy(self.model)
+    def _save_last_epoch_ckpt(self):
+        torch.save(self.model.state_dict(), self.workdir/'last_epoch.ckpt') 
+        self.last_epoch_ckpt = deepcopy(self.model)
 
     def _log_losses(self, train, valid, epoch, print_epochs=1):
         message = "\tEpoch: {}, train loss: {}, valid loss: {}  (min valid loss: {})".format(epoch, train.loss, valid.loss, valid.loss_min)
