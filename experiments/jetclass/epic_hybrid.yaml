@@ -20,10 +20,10 @@ data:
         - /home/df630/CMB/data/JetClass/TTBar_002.root
 
   source: 
-    name: beta-gauss
+    name: gauss
     concentration: [.1, 10.0]
     gauss_std: 0.25
-    initial_state_configuration: uniform
+    init_state_config: uniform
     train:
       num_jets: null
       path: null

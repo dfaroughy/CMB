@@ -66,7 +66,7 @@ class TelegraphProcess:
             logits: (b, n, vocab_size) logits tensor
         '''
 
-        assert (k >= 0).all() and (k < self.vocab_size).all(), "Values in `k` outside of bound!"
+        assert (k >= 0).all() and (k < self.vocab_size).all(), "Values in `k` outside of bound! k_min={}, k_max={}".format(k.min(), k.max())
         
         qx = softmax(logits, dim=2)             # softmax to get the transition probabilities for all states
         qy = torch.gather(qx, 2, k.long())      # get probabilities for the current state `k`

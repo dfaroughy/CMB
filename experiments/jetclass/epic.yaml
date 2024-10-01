@@ -1,6 +1,6 @@
 #...General parameters
-general:
-  workdir: ../../results
+experiment:
+  workdir: /home/df630/CMB/results
 
 #...Data parameters
 
@@ -9,17 +9,26 @@ data:
 
   target:
     name: tops
-    num_jets: null
-    path:
-      - /home/df630/CMB/data/JetClass/TTBar_000.root
-      # - /home/df630/CMB/data/JetClass/TTBar_001.root
+    train:
+      num_jets: null
+      path:
+        - /home/df630/CMB/data/JetClass/TTBar_000.root
+    test:
+      num_jets: null
+      path:
+        - /home/df630/CMB/data/JetClass/TTBar_002.root
 
   source: 
-    name: beta
+    name: beta-gauss
     concentration: [.1, 10.0]
     gauss_std: 0.25
-    num_jets: null
-    path: null
+    init_state_config: null
+    train:
+      num_jets: null
+      path: null
+    test:
+      num_jets: 2000
+      path: null
 
   min_num_particles: 0
   max_num_particles: 128
@@ -32,9 +41,10 @@ data:
       continuous: 0
       discrete: 0
   
-  vocab_size: 
-    features: 0
-    context: 0
+  vocab:
+    size: 
+      features: 0  
+      context: 0  
 
 #...Model parameters
 
@@ -71,21 +81,26 @@ model:
 #...Dynamics parameters
 
 dynamics: 
-  name: ConditionalFlowMatching
-  sigma: 0.0001
-  pipeline:
-    method: EulerSolver
-    num_timesteps: 500
-    time_eps: 0.001
+  name: ConditionalMarkovBridge
+  continuous:
+    process: FlowMatching
+    sigma: 0.0001
+
+#...Pipeline generation parameters
+
+pipeline:
+  method: EulerSolver
+  num_timesteps: 1000
+  time_eps: 0.001
 
 #...Training parameters
 
 train:
-  device: cuda:0
+  device: cuda:1
   multi_gpu: false
   batch_size: 1024
   data_split_frac: [0.8, 0.2, 0.0]  # train / val / test
-  epochs: 10
+  epochs: 100
   early_stopping: null
   min_epochs: null
   print_epochs: null
@@ -93,18 +108,19 @@ train:
   pin_memory: false
 
   optimizer:
-    name: Adam
-    lr: 0.0001
-    weight_decay: 0.0
-    betas: [0.9, 0.999]
-    eps: 1.e-8
-    amsgrad: false
-    gradient_clip: null
+    name: AdamW
+    params:
+      lr: 0.001
+      weight_decay: 5.0e-5
+      betas: [0.9, 0.999]
+      eps: 1.e-8
+      amsgrad: false
+    gradient_clip: 1.0
 
   scheduler: 
-    name: null
-    t_max: null
-    eta_min: null
-    gamma: null
-    step_size: null
+    name: CosineAnnealingWarmup
+    params: 
+      warmup: 20
+      T_max: 500
+
 

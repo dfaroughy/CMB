@@ -56,7 +56,7 @@ class EPiC(nn.Module):
 
         x_local_emb, context_emb = self.embedding(t, x, k, context_continuous, context_discrete, mask)
         h = self.epic(x_local_emb, context_emb, mask)
-        return h    
+        return h, None
 
 
 class HybridEPiC(nn.Module):

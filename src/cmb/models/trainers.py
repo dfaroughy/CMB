@@ -10,15 +10,12 @@ from copy import deepcopy
 from typing import Union
 
 from cmb.utils.training import Train_Step, Validation_Step
-from cmb.utils.optimizers import Optimizer
-# from cmb.utils.schedulers import Scheduler
 from cmb.utils.loggers import Logger
-
+from cmb.configs.registered_optimizers import optimizers, schedulers
+from cmb.configs.registered_models import models
+from cmb.configs.registered_generative_dynamics import dynamics
 from cmb.configs.utils import Configs
 from cmb.datasets.dataloader import DataloaderModule
-from cmb.configs.registered_generative_dynamics import dynamics
-from cmb.configs.registered_models import models
-from cmb.configs.registered_optimizers import optimizers, schedulers
 
 class GenerativeDynamicsModule: 
     """ Trainer for dynamic generative models
@@ -36,7 +33,6 @@ class GenerativeDynamicsModule:
         self.workdir = Path(self.config.experiment.workdir) / Path(self.config.data.dataset) / Path(self.config.experiment.name)
 
     def train(self):
-
         #...train config:
         train = Train_Step()
         valid = Validation_Step()
@@ -62,14 +58,13 @@ class GenerativeDynamicsModule:
             print("INFO: using ", torch.cuda.device_count(), "GPUs...")
             self.model = DataParallel(self.model)
 
-        #...train loop:
         dataloader = DataloaderModule(self.config, self.dataclass)
-
+        
+        #...train loop:
         for epoch in tqdm(range(self.config.train.epochs), desc="epochs"):
             train.update(model=self.model, loss_fn=self.dynamics.loss, dataloader=dataloader.train, optimizer=optimizer, scheduler=scheduler) 
             valid.update(model=self.model, loss_fn=self.dynamics.loss, dataloader=dataloader.valid)
             TERMINATE, IMPROVED = valid.checkpoint(min_epochs=min_epochs, early_stopping=early_stopping)
-            # scheduler.step() 
             self._log_losses(train, valid, epoch, print_epochs)
             self._save_best_epoch_ckpt(IMPROVED)
             self._save_last_epoch_ckpt()
@@ -81,7 +76,7 @@ class GenerativeDynamicsModule:
             
         self._save_last_epoch_ckpt()
         self._save_best_epoch_ckpt(not bool(dataloader.valid)) # best = last epoch if there is no validation, needed as a placeholder for pipeline
-        self.plot_loss = self._plot_loss(valid_loss=valid.losses, train_loss=train.losses)
+        self._plot_loss(valid_loss=valid.losses, train_loss=train.losses)
         self.logger.close()
         
     def load(self, checkpoint: str='best'):
@@ -102,7 +97,7 @@ class GenerativeDynamicsModule:
             self.checkpoint.load_state_dict(torch.load(self.workdir/f'{checkpoint}.ckpt', map_location=(torch.device('cpu') if self.config.train.device=='cpu' else None)))
 
     @torch.no_grad()
-    def generate(self, output_paths=False, **kwargs):
+    def generate(self, output_history=False, **kwargs):
         print('INFO: generating samples...') 
 
         if hasattr(self, 'best_epoch_ckpt'):  model = self.best_epoch_ckpt 
@@ -110,23 +105,28 @@ class GenerativeDynamicsModule:
         else:  model = self.checkpoint
 
         time_steps = torch.linspace(0.0, 1.0 - self.config.pipeline.time_eps, self.config.pipeline.num_timesteps)
-        self.paths, self.jumps = self.dynamics.solver.simulate(model, 
-                                                               time_steps=time_steps, 
-                                                               output_paths=output_paths,  
-                                                               **kwargs)
-        if self.paths is not None and self.jumps is None: 
-            sample = self.paths[-1] if output_paths else self.paths
-        elif self.paths is None and self.jumps is not None: 
-            sample = self.jumps[-1] if output_paths else self.jumps
-        elif self.paths is not None and self.jumps is not None: 
-            sample = torch.cat([self.paths[-1], self.jumps[-1]], dim=-1) if output_paths else torch.cat([self.paths, self.jumps], dim=-1)
+
+        out_continuous, out_discrete = self.dynamics.solver.simulate(model, 
+                                                                     time_steps=time_steps, 
+                                                                     output_history=output_history,  
+                                                                     **kwargs)
+        if out_continuous is not None and out_discrete is None: 
+            sample = out_continuous[-1] if output_history else out_continuous
+            self.trajectories = out_continuous if output_history else None
+
+        elif out_continuous is None and out_discrete is not None: 
+            sample = out_discrete[-1] if output_history else out_discrete
+            self.jumps = out_discrete if output_history else None
+
+        elif out_continuous is not None and out_discrete is not None: 
+            sample = torch.cat([out_continuous[-1], out_discrete[-1]], dim=-1) if output_history else torch.cat([out_continuous, out_discrete], dim=-1)
+            self.trajectories = out_continuous if output_history else None
+            self.jumps = out_discrete if output_history else None
         else: 
-            raise ValueError("Both paths and jumps cannot be None simultaneously.")
+            raise ValueError("Both trajectories and jumps cannot be `None` simultaneously.")
         
         mask = kwargs.get('mask', None)
         self.sample = sample if mask is None else torch.cat([sample, mask], dim=-1)
-        del self.paths, self.jumps
-
 
     def _save_best_epoch_ckpt(self, improved):
         if improved:
@@ -147,8 +147,8 @@ class GenerativeDynamicsModule:
 
     def _plot_loss(self, valid_loss, train_loss):
         fig, ax = plt.subplots(figsize=(4,3))
-        ax.plot(range(len(valid_loss)), np.array(valid_loss), color='r', lw=1, linestyle='-', label='Validation')
-        ax.plot(range(len(train_loss)), np.array(train_loss), color='b', lw=1, linestyle='--', label='Training', alpha=0.8)
+        ax.plot(range(len(valid_loss)), np.array(valid_loss), color='darkred', lw=0.75, linestyle='-', label='Validation')
+        ax.plot(range(len(train_loss)), np.array(train_loss), color='darkred', lw=0.75, linestyle='--', label='Training')
         ax.set_xlabel("Epochs", fontsize=8)
         ax.set_ylabel("Loss", fontsize=8)
         ax.set_title("Training & Validation Loss Over Epochs", fontsize=6)
@@ -159,4 +159,3 @@ class GenerativeDynamicsModule:
         ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.5)
         fig.tight_layout()
         plt.savefig(self.workdir / 'losses.png')
-        plt.close()

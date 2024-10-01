@@ -44,7 +44,7 @@ class EulerSolver:
                  source_continuous, 
                  context_continuous=None, 
                  context_discrete=None,
-                 output_final_state=False,
+                 output_history=False,
                  mask=None):
         
         model = model.to(self.device)
@@ -55,24 +55,28 @@ class EulerSolver:
         mask = mask.to(self.device) if mask is not None else None
         
         delta_t = (time_steps[-1] - time_steps[0]) / (len(time_steps) - 1)
-        paths = x.clone() if output_final_state else [x.clone()]
+        trajectories = x.clone() if output_history else [x.clone()]
 
         for time in time_steps[1:]:
             time = torch.full((x.size(0), 1), time.item(), device=self.device)
-            vector = model(t=time, 
-                            x=x, 
-                            context_continuous=context_continuous, 
-                            context_discrete=context_discrete, 
-                            mask=mask).to(self.device)
+            
+            vector, _ = model(t=time, 
+                              x=x, 
+                              context_continuous=context_continuous, 
+                              context_discrete=context_discrete, 
+                              mask=mask)
+            
+            vector = vector.to(self.device)
             x += delta_t * vector
             x *= mask
-            if output_final_state:
-                paths = x.clone()
-            else:
-                paths.append(x.clone())
+
+            if output_history: trajectories.append(x.clone())
+            else: trajectories = x.clone()
         
-        paths = torch.stack(paths)
-        return paths.detach().cpu(), None
+        if output_history:
+            trajectories = torch.stack(trajectories)
+
+        return trajectories.detach().cpu(), None
 
 class EulerMaruyamaSolver:
     ''' Euler-Maruyama SDE solver for continuous states
@@ -87,6 +91,7 @@ class EulerMaruyamaSolver:
                  source_continuous, 
                  context_continuous=None, 
                  context_discrete=None,
+                 output_history=False,
                  mask=None):
         
         model = model.to(self.device)
@@ -97,25 +102,30 @@ class EulerMaruyamaSolver:
         mask = mask.to(self.device) if mask is not None else None
         
         delta_t = (time_steps[-1] - time_steps[0]) / (len(time_steps) - 1)
-        paths = [x.clone()]
+        trajectories = x.clone() if output_history else [x.clone()]
 
         for time in time_steps[1:]:
             time = torch.full((x.size(0), 1), time.item(), device=self.device)
-            drift = model(t=time, 
-                          x=x, 
-                          context_continuous=context_continuous, 
-                          context_discrete=context_discrete, 
-                          mask=mask)
             
+            drift, _ = model(t=time, 
+                             x=x, 
+                             context_continuous=context_continuous, 
+                             context_discrete=context_discrete, 
+                             mask=mask)
+            
+            drift = drift.to(self.device)
             diffusion = self.diffusion(t=delta_t).to(self.device)
             delta_w = torch.randn_like(x).to(self.device)
             x += delta_t * drift + diffusion * delta_w
             x *= mask
 
-            paths.append(x.clone())
+            if output_history: trajectories.append(x.clone())
+            else: trajectories = x.clone()
         
-        paths = torch.stack(paths)
-        return paths.detach().cpu(), None
+        if output_history:
+            trajectories = torch.stack(trajectories)        
+
+        return trajectories.detach().cpu(), None
     
     
 class TauLeapingSolver:
@@ -190,7 +200,7 @@ class EulerLeapingSolver:
                  context_continuous=None, 
                  context_discrete=None, 
                  mask=None, 
-                 output_paths=False,
+                 output_history=False,
                  max_rate_last_step=False):
         
         model = model.to(self.device)
@@ -202,7 +212,7 @@ class EulerLeapingSolver:
         mask = mask.to(self.device) if mask is not None else None
 
         delta_t = (time_steps[-1] - time_steps[0]) / (len(time_steps) - 1)
-        paths, jumps = ([x.clone()], [k.clone()]) if output_paths else x.clone(), k.clone()
+        trajectories, jumps = ([x.clone()], [k.clone()]) if output_history else x.clone(), k.clone()
 
         for time in time_steps[1:]:
 
@@ -236,15 +246,23 @@ class EulerLeapingSolver:
             x += delta_t * vector
             x *= mask
 
-            if output_paths:
-                paths.append(x.clone())
+            if output_history:
+                trajectories.append(x.clone())
                 jumps.append(k.clone())
-                paths = torch.stack(paths)
-                jumps = torch.stack(jumps)
             else:
-                paths, jumps = x.clone(), k.clone()
+                trajectories, jumps = x.clone(), k.clone()
 
-        return paths.detach().cpu(), jumps.detach().cpu()
+
+        if output_history:
+            trajectories = torch.stack(trajectories)
+            if max_rate_last_step:
+                jumps[-1] = max_rate # replace last jump with max rates
+            jumps = torch.stack(jumps)
+
+        if max_rate_last_step:
+            jumps = max_rate # replace last jump with max rates
+            
+        return trajectories.detach().cpu(), jumps.detach().cpu()
     
 
 class EulerMaruyamaLeapingSolver:
@@ -265,7 +283,8 @@ class EulerMaruyamaLeapingSolver:
                  context_continuous=None, 
                  context_discrete=None, 
                  mask=None, 
-                 max_rate_last_step=False):
+                 max_rate_last_step=False,
+                 output_history=False):
         
         model = model.to(self.device)
         time_steps = time_steps.to(self.device)
@@ -276,7 +295,7 @@ class EulerMaruyamaLeapingSolver:
         mask = mask.to(self.device) if mask is not None else None
 
         delta_t = (time_steps[-1] - time_steps[0]) / (len(time_steps) - 1)
-        paths, jumps = [x.clone()], [k.clone()]
+        trajectories, jumps = ([x.clone()], [k.clone()]) if output_history else x.clone(), k.clone()
 
         for time in time_steps[1:]:
 
@@ -309,12 +328,21 @@ class EulerMaruyamaLeapingSolver:
             delta_w = torch.sqrt(delta_t) * noise
             x += delta_t * drift + diffusion * delta_w
             x *= mask
-            paths.append(x.clone())
+            trajectories.append(x.clone())
         
-        paths = torch.stack(paths)
-        jumps = torch.stack(jumps)
+            if output_history:
+                trajectories.append(x.clone())
+                jumps.append(k.clone())
+            else:
+                trajectories, jumps = x.clone(), k.clone()
+
+        if output_history:
+            trajectories = torch.stack(trajectories)
+            if max_rate_last_step:
+                jumps[-1] = max_rate # replace last jump with max rates
+            jumps = torch.stack(jumps)
 
         if max_rate_last_step:
-            jumps[-1] = max_rate # replace last jump with max rates
-
-        return paths.detach().cpu(), jumps.detach().cpu()
+            jumps = max_rate # replace last jump with max rates
+            
+        return trajectories.detach().cpu(), jumps.detach().cpu()

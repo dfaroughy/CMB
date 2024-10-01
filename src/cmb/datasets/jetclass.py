@@ -45,7 +45,7 @@ class JetsClassData:
                                          max_num_particles=config.max_num_particles, 
                                          num_jets=N_target,
                                          discrete_features=bool(config.dim.features.discrete))
-    
+
         if config.source.name == 'beta-gauss':
             self.source = PointClouds(num_clouds=N_source if test else len(self.target), 
                                       max_num_particles=config.max_num_particles, 
@@ -55,9 +55,21 @@ class JetsClassData:
                                       noise_type='beta-gauss',
                                       gauss_std=config.source.gauss_std,
                                       concentration=config.source.concentration,
-                                      initial_state_configuration=config.source.initial_state_configuration)
-            if standardize: 
-                self.source.preprocess()
+                                      init_state_config=config.source.init_state_config)
+        elif config.source.name == 'gauss':
+            self.source = PointClouds(num_clouds=N_source if test else len(self.target), 
+                                      max_num_particles=config.max_num_particles, 
+                                      discrete_features=bool(config.dim.features.discrete), 
+                                      vocab_size=config.vocab.size.features,
+                                      masks_like=self.target,
+                                      noise_type='gauss',
+                                      gauss_std=config.source.gauss_std,
+                                      concentration=config.source.concentration,
+                                      init_state_config=config.source.init_state_config)
+        
+        if standardize: 
+            self.target.preprocess()
+            self.source.preprocess()
 
 class ParticleClouds:
     def __init__(self, 
@@ -201,7 +213,7 @@ class PointClouds:
                 vocab_size=None,
                 noise_type='gauss',
                 concentration=[1.,3.],
-                initial_state_configuration='random',
+                init_state_config='random',
                 gauss_std=0.1):
                 
         self.num_clouds = num_clouds
@@ -213,7 +225,7 @@ class PointClouds:
             eta_phi = torch.randn((num_clouds, max_num_particles, 2)) * gauss_std
             continuous = torch.cat([pt, eta_phi], dim=2)
         elif noise_type=='gauss':
-            continuous = torch.randn((num_clouds, max_num_particles, 3))
+            continuous = torch.randn((num_clouds, max_num_particles, 3)) * gauss_std
         else:
             raise ValueError('Noise type not recognized. Choose between "gauss" and "beta-gauss".')
         self.sample_masks(masks_like=masks_like)
@@ -224,10 +236,10 @@ class PointClouds:
         self.phi_rel = self.continuous[...,2]
 
         if discrete_features:
-            if initial_state_configuration == 'uniform':
+            if init_state_config == 'uniform':
                 discrete = np.random.choice(range(vocab_size), size=(num_clouds, max_num_particles))
             else:
-                discrete = np.ones((num_clouds, max_num_particles)) * initial_state_configuration
+                discrete = np.ones((num_clouds, max_num_particles)) * init_state_config
             discrete = torch.tensor(discrete).unsqueeze(-1) 
             self.discrete = discrete.long()
 
