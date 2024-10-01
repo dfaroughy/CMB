@@ -20,7 +20,7 @@ data:
         - /home/df630/CMB/data/JetClass/TTBar_002.root
 
   source: 
-    name: gauss
+    name: beta-gauss
     concentration: [.1, 10.0]
     gauss_std: 0.25
     init_state_config: uniform
@@ -84,11 +84,9 @@ model:
 dynamics: 
   name: ConditionalMarkovBridge
   loss_weight: 0.1
-
   continuous:
     process: FlowMatching
     sigma: 0.0001
-
   discrete:
     process: TelegraphProcess
     gamma: 0.125

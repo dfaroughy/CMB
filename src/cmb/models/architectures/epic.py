@@ -71,7 +71,7 @@ class HybridEPiC(nn.Module):
         self.epic = EPiC(config)
 
     def forward(self, t, x, k, context_continuous=None, context_discrete=None, mask=None):
-        h = self.epic(t, x, k, context_continuous, context_discrete, mask)
+        h, _ = self.epic(t, x, k, context_continuous, context_discrete, mask)
         continuous_head = h[..., :self.dim_features_continuous] 
         logits = h[..., self.dim_features_continuous:]
         return continuous_head, logits

@@ -8,7 +8,6 @@ from collections import namedtuple
 class DataSetModule(Dataset):
     def __init__(self, data):
         self.data = data
-
         self.attributes=[]
 
         if hasattr(self.data.source, 'continuous'): 
