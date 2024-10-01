@@ -50,7 +50,7 @@ class ConditionalMarkovBridge :
         self.x0 = batch.source_continuous if hasattr(batch, 'source_continuous') else None
         self.x1 = batch.target_continuous if hasattr(batch, 'target_continuous') else None
         self.k0 = batch.source_discrete if hasattr(batch, 'source_discrete') else None
-        self.k1 = batch.target_discrete  if hasattr(batch, 'target_dicrete') else None
+        self.k1 = batch.target_discrete  if hasattr(batch, 'target_discrete') else None
         self.context_continuous = batch.target_context_continuous if hasattr(batch, 'target_context_continuous') else None
         self.context_discrete = batch.target_context_discrete if hasattr(batch, 'target_context_discrete') else None
         self.mask = batch.target_mask if hasattr(batch, 'target_mask') else torch.ones_like(self.x0[..., 0]).unsqueeze(-1)
