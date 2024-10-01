@@ -3,11 +3,10 @@ import torch
 import torch.nn as nn
 import numpy as np
 from torch.utils.data import DataLoader
-class Train_Step(nn.Module): 
 
+class Train_Step(nn.Module): 
     """ Represents a training step.
     """
-
     def __init__(self):
         super(Train_Step, self).__init__()
         self.loss = 0
@@ -34,10 +33,8 @@ class Train_Step(nn.Module):
         self.losses.append(self.loss) 
 
 class Validation_Step(nn.Module):
-
     """ Represents a validation step.
     """
-
     def __init__(self):
         super(Validation_Step, self).__init__()
         self.loss = 0
@@ -74,3 +71,10 @@ class Validation_Step(nn.Module):
             else: self.patience += 1 if self.epoch > min_epochs else 0
             if self.patience >= early_stopping: terminate = True
         return terminate, improved
+    
+class Test_Step(nn.Module):
+    """ TODO Represents a test step.
+    """
+    def __init__(self):
+        super(Test_Step, self).__init__()
+        pass
