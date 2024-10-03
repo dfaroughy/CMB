@@ -18,7 +18,9 @@ class Train_Step(nn.Module):
                loss_fn, 
                dataloader: DataLoader, 
                optimizer, 
-               scheduler):
+               scheduler,
+               gradient_clip=None
+                ):
         
         self.loss = 0
         self.epoch += 1
@@ -27,6 +29,8 @@ class Train_Step(nn.Module):
             optimizer.zero_grad()
             loss_current = loss_fn(model, batch)
             loss_current.backward()
+            if gradient_clip:
+                torch.nn.utils.clip_grad_value_(model.parameters(), gradient_clip)
             optimizer.step()
             scheduler.step(epoch=self.epoch)
             self.loss += loss_current.detach().cpu().numpy() / len(dataloader)

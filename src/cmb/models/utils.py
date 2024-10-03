@@ -15,12 +15,12 @@ class Train_Step(nn.Module):
     """ Represents a training step.
     """
 
-    def __init__(self):
+    def __init__(self, gradient_clip):
         super(Train_Step, self).__init__()
         self.loss = 0
         self.epoch = 0
         self.losses = []
-
+        self.gradient_clip=gradient_clip
     def update(self, model, loss_fn, dataloader: DataLoader, optimizer, scheduler):
         self.loss = 0
         self.epoch += 1
@@ -29,6 +29,8 @@ class Train_Step(nn.Module):
             optimizer.zero_grad()
             loss_current = loss_fn(model, batch)
             loss_current.backward()
+            if self.gradient_clip:
+                torch.nn.utils.clip_grad_value_(model.parameters(), self.gradient_clip)
             optimizer.step()
             scheduler.step()
             self.loss += loss_current.detach().cpu().numpy() / len(dataloader)

@@ -54,6 +54,7 @@ class GenerativeDynamicsModule:
 
         #...multi-gpu:
         # TODO fix multi-gpu training
+
         if self.config.train.multi_gpu and torch.cuda.device_count() > 1:
             print("INFO: using ", torch.cuda.device_count(), "GPUs...")
             self.model = DataParallel(self.model)
@@ -62,8 +63,18 @@ class GenerativeDynamicsModule:
         
         #...train loop:
         for epoch in tqdm(range(self.config.train.epochs), desc="epochs"):
-            train.update(model=self.model, loss_fn=self.dynamics.loss, dataloader=dataloader.train, optimizer=optimizer, scheduler=scheduler) 
-            valid.update(model=self.model, loss_fn=self.dynamics.loss, dataloader=dataloader.valid)
+
+            train.update(model=self.model, 
+                         loss_fn=self.dynamics.loss, 
+                         dataloader=dataloader.train, 
+                         optimizer=optimizer, 
+                         scheduler=scheduler,
+                         gradient_clip=self.config.train.optimizer.gradient_clip) 
+            
+            valid.update(model=self.model, 
+                         loss_fn=self.dynamics.loss, 
+                         dataloader=dataloader.valid)
+            
             TERMINATE, IMPROVED = valid.checkpoint(min_epochs=min_epochs, early_stopping=early_stopping)
             self._log_losses(train, valid, epoch, print_epochs)
             self._save_best_epoch_ckpt(IMPROVED)
@@ -74,6 +85,7 @@ class GenerativeDynamicsModule:
                 self.logger.logfile_and_console(stop_message)
                 break
             
+        self.val_losses = valid.losses            
         self._save_last_epoch_ckpt()
         self._save_best_epoch_ckpt(not bool(dataloader.valid)) # best = last epoch if there is no validation, needed as a placeholder for pipeline
         self._plot_loss(valid_loss=valid.losses, train_loss=train.losses)

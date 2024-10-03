@@ -20,7 +20,7 @@ class Configs:
         
         if hasattr(self, 'experiment'):
             if not hasattr(self.experiment, 'name'):
-                self.experiment.name = f"{self.data.source.name}_to_{self.data.target.name}_{self.dynamics.name}_{self.model.name}"
+                self.experiment.name = f"{self.data.source.name}_to_{self.data.target.name}_{self.dynamics.continuous.process}_{self.dynamics.discrete.process}_{self.model.name}"
                 time = datetime.now().strftime("%Y.%m.%d_%Hh%M")
                 rnd = random.randint(0, 10000)
                 self.experiment.name += f"_{time}_{rnd}"
