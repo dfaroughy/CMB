@@ -22,13 +22,17 @@ class GenerativeDynamicsModule:
     """
     def __init__(self, 
                  config: Union[Configs, str]=None, 
-                 dataclass=None):
+                 dataclass=None,
+                 device=None):
+
+        if isinstance(config, str): 
+            config = Configs(config)                                              # get configs form yaml
+            if device is not None: config.train.device = device                   # override config device if provided
 
         self.dataclass = dataclass
-        if isinstance(config, str): config = Configs(config)                      # get configs form yaml
         self.config = config 
-        self.dynamics = dynamics.get(config.dynamics.name)(self.config)           # get generative dynamical model from config
-        self.model = models.get(config.model.name)(self.config)                   # get NN from configs
+        self.dynamics = dynamics.get(self.config.dynamics.name)(self.config)           # get generative dynamical model from config
+        self.model = models.get(self.config.model.name)(self.config)                   # get NN from configs
         self.model = self.model.to(torch.device(self.config.train.device))
         self.workdir = Path(self.config.experiment.workdir) / Path(self.config.data.dataset) / Path(self.config.experiment.name)
 
@@ -93,17 +97,17 @@ class GenerativeDynamicsModule:
         
     def load(self, checkpoint: str='best'):
         if checkpoint=='best':
-            print('INFO: loading `best` epoch checkpoint from:') 
+            print('INFO: loading `best` epoch checkpoint on {} from:'.format(self.config.train.device)) 
             print('  - {}'.format(self.workdir/'best_epoch.ckpt'))
             self.best_epoch_ckpt = type(self.model)(self.config)
             self.best_epoch_ckpt.load_state_dict(torch.load(self.workdir/'best_epoch.ckpt', map_location=(torch.device('cpu') if self.config.train.device=='cpu' else None)))
         elif checkpoint=='last':
-            print('INFO: loading `last` epoch checkpoint from:') 
+            print('INFO: loading `last` epoch checkpoint on {} from:'.format(self.config.train.device)) 
             print('  - {}'.format(self.workdir/'last_epoch.ckpt'))
             self.last_epoch_ckpt = type(self.model)(self.config)
             self.last_epoch_ckpt.load_state_dict(torch.load(self.workdir/'last_epoch.ckpt', map_location=(torch.device('cpu') if self.config.train.device=='cpu' else None)))
         else:
-            print(f'INFO: loading `{checkpoint}` checkpoint from:') 
+            print('INFO: loading `{}` checkpoint on {} from:'.format(checkpoint, self.config.train.device)) 
             print('  - {}'.format(self.workdir/f'{checkpoint}.ckpt'))
             self.checkpoint = type(self.model)(self.config)
             self.checkpoint.load_state_dict(torch.load(self.workdir/f'{checkpoint}.ckpt', map_location=(torch.device('cpu') if self.config.train.device=='cpu' else None)))

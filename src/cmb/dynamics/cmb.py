@@ -18,7 +18,7 @@ class ConditionalMarkovBridge :
     
         if hasattr(config.dynamics, 'continuous'): 
             self.process_continuous = processes['continuous'].get(config.dynamics.continuous.process)(config)
-            self.loss_continuous_fn = MSELoss(reduction='sum')
+            self.loss_continuous_fn = MSELoss(reduction='none')
         
         if hasattr(config.dynamics, 'discrete'): 
             self.process_discrete = processes['discrete'].get(config.dynamics.discrete.process)(config)
@@ -61,12 +61,17 @@ class ConditionalMarkovBridge :
         self.xt = self.process_continuous.sample(t=self.t, x0=self.x0, x1=self.x1) if hasattr(self, 'process_continuous') else None
         self.kt = self.process_discrete.sample(t=self.t, k0=self.k0, k1=self.k1) if hasattr(self, 'process_discrete') else None 
 
+    def sample_weights(self):
+        self.continuous_weight = 1.0
+        self.discrete_weight = self.weight * (1.0 - self.t)
+
     def loss(self, model, batch):
         
         loss = 0.0
 
         self.sample_coupling(batch)
         self.sample_time() 
+        self.sample_weights()
         self.sample_bridges()
 
         vector, logits = model(t=self.t, 
@@ -78,20 +83,20 @@ class ConditionalMarkovBridge :
 
         if hasattr(self, 'process_continuous'):
             ut = self.process_continuous.drift(t=self.t, 
-                                                x=self.xt, 
-                                                x0=self.x0, 
-                                                x1=self.x1).to(vector.device)
+                                               x=self.xt, 
+                                               x0=self.x0, 
+                                               x1=self.x1).to(vector.device)
             self.mask = self.mask.to(vector.device)
-            ut *= self.mask
-            loss += self.loss_continuous_fn(vector, ut) / self.mask.sum()
+            loss_mse = self.continuous_weight.to(vector.device) * self.loss_continuous_fn(vector, ut).to(vector.device) * self.mask
+            loss +=  loss_mse.sum() / self.mask.sum()
 
         if hasattr(self, 'process_discrete'):
             logits = logits.reshape(-1, self.vocab_size)
             targets = self.k1.reshape(-1).long() 
             targets = targets.to(logits.device)
             self.mask = self.mask.reshape(-1)
-            loss_ce = self.loss_discrete_fn(logits, targets).to(logits.device) * self.mask
-            loss += self.weight * loss_ce.sum() / self.mask.sum()
+            loss_ce = self.discrete_weight.to(logits.device) * self.loss_discrete_fn(logits, targets).to(logits.device) * self.mask
+            loss += loss_ce.sum() / self.mask.sum()
 
         return loss
 

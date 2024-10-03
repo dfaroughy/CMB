@@ -2,36 +2,6 @@ import torch
 import torch.nn as nn
 from dataclasses import dataclass
 
-# class Pipeline:
-#     ''' Dynamics simmulation pipeline for generating samples
-#     '''
-#     def __init__(self, 
-#                  trained_model,
-#                  best_epoch_model: bool=True
-#                  ):
-
-#         self.config = trained_model.config
-#         self.model = trained_model.best_epoch_model if best_epoch_model else trained_model.last_epoch_model
-#         self.dynamics = trained_model.dynamics
-#         self.time_steps = torch.linspace(0.0, 1.0 - self.config.pipeline.time_eps, self.config.pipeline.num_timesteps)
-
-#         #...solvers:
-#         self.registered_solvers = {'EulerSolver': EulerSolver,
-#                                    'EulerMaruyamaSolver': EulerMaruyamaSolver,
-#                                    'TauLeapingSolver': TauLeapingSolver,
-#                                    'EulerLeapingSolver': EulerLeapingSolver,
-#                                    'EulerMaruyamaLeapingSolver': EulerMaruyamaLeapingSolver}
-        
-#         self.solver = self.registered_solvers.get(self.config.pipeline.method)
-
-#     @torch.no_grad()
-#     def generate_samples(self, **source):
-#         ''' Generate samples from the model using the pipeline method.
-#         '''
-#         solver = self.solver(config=self.config, model=self.model, dynamics=self.dynamics)
-#         self.paths, self.jumps = solver.simulate(time_steps=self.time_steps, **source)
-        
-
 class EulerSolver:
     ''' Euler ODE solver for continuous states
     '''
@@ -179,7 +149,7 @@ class TauLeapingSolver:
 
         jumps = torch.stack(jumps)
         if max_rate_last_step:
-            jumps[-1] = max_rate # replace last jump with max rates
+            jumps[-1] = max_rate.unsqueeze(-1) # replace last jump with max rates
 
         return None, jumps.detach().cpu()
 
@@ -260,7 +230,7 @@ class EulerLeapingSolver:
             jumps = torch.stack(jumps)
 
         if max_rate_last_step:
-            jumps = max_rate # replace last jump with max rates
+            jumps = max_rate.unsqueeze(-1) # replace last jump with max rates
             
         return trajectories.detach().cpu(), jumps.detach().cpu()
     
@@ -343,6 +313,6 @@ class EulerMaruyamaLeapingSolver:
             jumps = torch.stack(jumps)
 
         if max_rate_last_step:
-            jumps = max_rate # replace last jump with max rates
+            jumps = max_rate.unsqueeze(-1) # replace last jump with max rates
             
         return trajectories.detach().cpu(), jumps.detach().cpu()

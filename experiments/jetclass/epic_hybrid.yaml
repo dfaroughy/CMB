@@ -6,21 +6,20 @@ experiment:
 
 data:
   dataset: JetClass
-  
+  standardize: true
   target:
     name: tops
     train:
       num_jets: null
       path:
         - /home/df630/CMB/data/JetClass/TTBar_000.root
-        # - /home/df630/CMB/data/JetClass/TTBar_001.root
     test:
       num_jets: null
       path:
         - /home/df630/CMB/data/JetClass/TTBar_002.root
 
   source: 
-    name: beta-gauss
+    name: gauss
     concentration: [.1, 10.0]
     gauss_std: 0.25
     init_state_config: uniform
@@ -55,10 +54,10 @@ model:
 
   dim:
     embed:
-      time: 32
+      time: 16
       features:
-        continuous: 64
-        discrete: 32
+        continuous: 16
+        discrete: 16
       context:
         continuous: 0
         discrete: 0
@@ -76,7 +75,7 @@ model:
       discrete: null
 
   skip_connection: true
-  dropout: 0.15
+  dropout: 0.1
   activation: SELU
 
 #...Dynamics parameters
@@ -101,14 +100,14 @@ pipeline:
 #...Training parameters
 
 train:
-  device: cuda:0
+  device: cuda:1
   multi_gpu: false
   batch_size: 1048
   data_split_frac: [0.9, 0.1, 0.0]  # train / val / test
   epochs: 100
   early_stopping: null
   min_epochs: null
-  print_epochs: null
+  print_epochs: 10
   num_workers: 0
   pin_memory: false
 
@@ -123,9 +122,10 @@ train:
     gradient_clip: 1.0
 
   scheduler: 
-    name: CosineAnnealingWarmup
+    name: CosineAnnealingLR
     params: 
-      warmup: 20
-      T_max: 500
+      T_max: 100
+      eta_min: 0.0
+      last_epoch: -1
 
 
