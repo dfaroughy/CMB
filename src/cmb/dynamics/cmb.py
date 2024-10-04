@@ -123,16 +123,16 @@ class BatchOTCMB(ConditionalMarkovBridge):
         self.mask = batch.target_mask if hasattr(batch, 'target_mask') else torch.ones_like(self.x0[..., 0]).unsqueeze(-1)
 
 
-class BatchRegOTCMB(ConditionalMarkovBridge):
+class BatchEntropicOTCMB(ConditionalMarkovBridge):
     def sample_coupling(self, batch):
         regulator = 2 * self.config.dynamics.continuous.sigma**2
-        ROT = OTPlanSampler(reg=regulator)	
+        EOT = OTPlanSampler(reg=regulator)	
         self.x0 = batch.source_continuous
         self.x1 = batch.target_continuous
         self.k0 = batch.source_discrete
         self.k1 = batch.target_discrete
-        pi = ROT.get_map(self.x0, self.x1)
-        idx_0, idx_1 = ROT.sample_map(pi, self.x0.shape[0], replace=False)
+        pi = EOT.get_map(self.x0, self.x1)
+        idx_0, idx_1 = EOT.sample_map(pi, self.x0.shape[0], replace=False)
         self.x0, self.x1 = self.x0[idx_0], self.x1[idx_1]
         self.k0, self.k1 = self.k0[idx_0], self.k1[idx_1]
         self.context_continuous = batch.target_context_continuous if hasattr(batch, 'target_context_continuous') else None
