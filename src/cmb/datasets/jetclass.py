@@ -24,8 +24,7 @@ class JetsClassData:
                  dataset_source=None, 
                  dataset_target=None, 
                  num_jets_source=None, 
-                 num_jets_target=None,  
-                 standardize: bool=False,
+                 num_jets_target=None
                  test=False):
         
         if test: 
@@ -39,7 +38,7 @@ class JetsClassData:
             dataset_target = config.target.train.path if dataset_target is None else dataset_target
             dataset_source = config.target.test.path if dataset_source is None else dataset_source
 
-        if config.target.name == 'tops':
+        if (config.target.name in ['qcd', 'tbqq', 'tblv', 'wqq', 'hbb']):
             self.target = ParticleClouds(dataset=dataset_target, 
                                          min_num_particles=config.min_num_particles, 
                                          max_num_particles=config.max_num_particles, 
@@ -67,7 +66,7 @@ class JetsClassData:
                                       concentration=config.source.concentration,
                                       init_state_config=config.source.init_state_config)
         
-        if standardize: 
+        if config.data.standardize: 
             self.target.preprocess()
             self.source.preprocess()
 
@@ -113,9 +112,9 @@ class ParticleClouds:
                 'max': data.max(0)}
     
     def preprocess(self, scale=1.0):
-        stats = self.summary_stats()
-        self.continuous = (self.continuous - stats['mean']) / (stats['std'] * scale) 
-        self.continuous = self.continuous * self.mask
+        self.stats = self.summary_stats()
+        self.continuous = (self.continuous - self.stats ['mean']) / (self.stats['std'] * scale) 
+        self.continuous *= self.mask
         self.pt_rel = self.continuous[...,0] 
         self.eta_rel = self.continuous[...,1]
         self.phi_rel = self.continuous[...,2]

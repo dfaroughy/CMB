@@ -163,8 +163,8 @@ class GenerativeDynamicsModule:
 
     def _plot_loss(self, valid_loss, train_loss):
         fig, ax = plt.subplots(figsize=(4,3))
-        ax.plot(range(len(valid_loss)), np.array(valid_loss), color='darkred', lw=0.75, linestyle='-', label='Validation')
-        ax.plot(range(len(train_loss)), np.array(train_loss), color='darkred', lw=0.75, linestyle='--', label='Training')
+        ax.plot(range(len(valid_loss)), np.array(valid_loss), color='darkred', lw=0.75, linestyle='--', label='val')
+        ax.plot(range(len(train_loss)), np.array(train_loss), color='darkblue', lw=0.75, linestyle='-', label='train')
         ax.set_xlabel("Epochs", fontsize=8)
         ax.set_ylabel("Loss", fontsize=8)
         ax.set_title("Training & Validation Loss Over Epochs", fontsize=6)
