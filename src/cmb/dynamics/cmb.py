@@ -61,8 +61,8 @@ class ConditionalMarkovBridge :
         self.xt = self.process_continuous.sample(t=self.t, x0=self.x0, x1=self.x1) if hasattr(self, 'process_continuous') else None
         self.kt = self.process_discrete.sample(t=self.t, k0=self.k0, k1=self.k1) if hasattr(self, 'process_discrete') else None 
 
-    def sample_weights(self):
-        self.continuous_weight = 1.0
+    def get_weights(self):
+        self.continuous_weight = None
         self.discrete_weight = self.weight * (1.0 - self.t)
 
     def loss(self, model, batch):
@@ -71,8 +71,8 @@ class ConditionalMarkovBridge :
 
         self.sample_coupling(batch)
         self.sample_time() 
-        self.sample_weights()
         self.sample_bridges()
+        self.get_weights()
 
         vector, logits = model(t=self.t, 
                                x=self.xt, 
@@ -81,13 +81,15 @@ class ConditionalMarkovBridge :
                                context_discrete=self.context_discrete, 
                                mask=self.mask)
 
+        self.mask = self.mask.to(vector.device)
+        
         if hasattr(self, 'process_continuous'):
             ut = self.process_continuous.drift(t=self.t, 
                                                x=self.xt, 
                                                x0=self.x0, 
                                                x1=self.x1).to(vector.device)
-            self.mask = self.mask.to(vector.device)
-            loss_mse = self.continuous_weight.to(vector.device) * self.loss_continuous_fn(vector, ut).to(vector.device) * self.mask
+            
+            loss_mse = self.loss_continuous_fn(vector, ut) * self.mask
             loss +=  loss_mse.sum() / self.mask.sum()
 
         if hasattr(self, 'process_discrete'):
@@ -95,7 +97,8 @@ class ConditionalMarkovBridge :
             targets = self.k1.reshape(-1).long() 
             targets = targets.to(logits.device)
             self.mask = self.mask.reshape(-1)
-            loss_ce = self.discrete_weight.to(logits.device) * self.loss_discrete_fn(logits, targets).to(logits.device) * self.mask
+            loss_ce = self.discrete_weight.to(logits.device) * self.loss_discrete_fn(logits, targets)
+            loss_ce = loss_ce * self.mask
             loss += loss_ce.sum() / self.mask.sum()
 
         return loss
