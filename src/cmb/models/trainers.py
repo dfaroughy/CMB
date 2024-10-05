@@ -147,7 +147,7 @@ class GenerativeDynamicsModule:
     def _save_best_epoch_ckpt(self, improved):
         if improved:
             torch.save(self.model.state_dict(), self.workdir/f'best_epoch.ckpt')
-            self.best_epoch_ckpt= deepcopy(self.model)
+            self.best_epoch_ckpt = deepcopy(self.model)
         else: pass
 
     def _save_last_epoch_ckpt(self):

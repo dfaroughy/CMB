@@ -17,10 +17,38 @@ class Configs:
             raise ValueError("config_source must be a file path or a dictionary")
         
         self._set_attributes(config_dict) # set attributes recursively 
-        
+
+    
         if hasattr(self, 'experiment'):
+
+            if not hasattr(self.experiment, 'type'):
+                
+                if hasattr(self.dynamics, 'discrete') and not hasattr(self.dynamics, 'continuous'): 
+                    self.experiment.type = 'discrete'
+                    assert self.data.dim.features.discrete > 0 
+                    self.data.dim.features.continuous = 0
+
+                elif hasattr(self.dynamics, 'continuous') and not hasattr(self.dynamics, 'discrete'): 
+                    assert self.data.dim.features.continuous > 0 
+                    self.experiment.type = 'continuous'
+                    self.data.dim.features.discrete = 0
+
+                else: 
+                    self.experiment.type = 'hybrid'
+                    assert self.data.dim.features.continuous > 0 and self.data.dim.features.discrete > 0 
+
             if not hasattr(self.experiment, 'name'):
-                self.experiment.name = f"{self.data.source.name}_to_{self.data.target.name}_{self.dynamics.continuous.process}_{self.dynamics.discrete.process}_{self.model.name}"
+
+                self.experiment.name = f"{self.data.source.name}_to_{self.data.target.name}"
+
+                if hasattr(self.dynamics, 'continuous'):
+                    self.experiment.name += f"_{self.dynamics.continuous.process}"
+
+                if hasattr(self.dynamics, 'discrete'):
+                    self.experiment.name += f"_{self.dynamics.discrete.process}"
+
+                self.experiment.name += f"_{self.model.name}"
+
                 time = datetime.now().strftime("%Y.%m.%d_%Hh%M")
                 rnd = random.randint(0, 10000)
                 self.experiment.name += f"_{time}_{rnd}"
@@ -92,17 +120,3 @@ class Configs:
         with open(path, 'w') as f:
             yaml.dump(config_dict, f, default_flow_style=False)
             
-# def import_model(config: Union[Configs, str]):
-
-#     from cmb.dynamics.cfm import ConditionalFlowMatching, BatchOTCFM, BatchSBCFM
-#     from cmb.dynamics.cmb import ConditionalMarkovBridge, BatchOTCMB, BatchSBCMB
-#     from cmb.models.architectures.deep_nets import MLP, HybridMLP, ClassifierMLP
-#     from cmb.models.architectures.epic import EPiC, HybridEPiC
-
-#     if isinstance(config, str):
-#         config = Configs(config)
-
-#     model = locals()[config.model.name](config)
-#     dynamics = locals()[config.dynamics.name](config)
-#     print('      - model: {}'.format(config.model.name))
-#     return config, model, dynamics, 

@@ -24,9 +24,8 @@ class JetsClassData:
                  dataset_source=None, 
                  dataset_target=None, 
                  num_jets_source=None, 
-                 num_jets_target=None
+                 num_jets_target=None,
                  test=False):
-        
         if test: 
             N_target = config.target.test.num_jets if num_jets_target is None else num_jets_target
             N_source = config.source.test.num_jets if num_jets_source is None else num_jets_source
@@ -66,7 +65,7 @@ class JetsClassData:
                                       concentration=config.source.concentration,
                                       init_state_config=config.source.init_state_config)
         
-        if config.data.standardize: 
+        if config.standardize: 
             self.target.preprocess()
             self.source.preprocess()
 
@@ -212,7 +211,7 @@ class PointClouds:
                 vocab_size=None,
                 noise_type='gauss',
                 concentration=[1.,3.],
-                init_state_config='random',
+                init_state_config='uniform',
                 gauss_std=0.1):
                 
         self.num_clouds = num_clouds
@@ -237,7 +236,9 @@ class PointClouds:
         if discrete_features:
             if init_state_config == 'uniform':
                 discrete = np.random.choice(range(vocab_size), size=(num_clouds, max_num_particles))
-            else:
+            elif isinstance(init_state_config, list):
+                discrete = np.random.choice(init_state_config, size=(num_clouds, max_num_particles))
+            elif isinstance(init_state_config, int):
                 discrete = np.ones((num_clouds, max_num_particles)) * init_state_config
             discrete = torch.tensor(discrete).unsqueeze(-1) 
             self.discrete = discrete.long()

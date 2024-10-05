@@ -61,10 +61,19 @@ class ConditionalMarkovBridge :
         self.xt = self.process_continuous.sample(t=self.t, x0=self.x0, x1=self.x1) if hasattr(self, 'process_continuous') else None
         self.kt = self.process_discrete.sample(t=self.t, k0=self.k0, k1=self.k1) if hasattr(self, 'process_discrete') else None 
 
-    def get_weights(self):
-        self.continuous_weight = None
-        self.discrete_weight = self.weight * (1.0 - self.t)
-
+    def loss_weight(self, device):
+        ''' time-dependent relative weight function in front the discrete CE loss
+        '''
+        if self.config.dynamics.loss_weight_fn =='linear':  
+            weight = self.weight * (1.0 - self.t)
+            weight = weight.to(device)
+        elif self.config.dynamics.loss_weight_fn =='parabolic':  
+            weight = self.weight * 4 * self.t * (1.0 - self.t)
+            weight = weight.to(device)
+        else: 
+            weight = self.weight
+        return weight
+    
     def loss(self, model, batch):
         
         loss = 0.0
@@ -72,7 +81,6 @@ class ConditionalMarkovBridge :
         self.sample_coupling(batch)
         self.sample_time() 
         self.sample_bridges()
-        self.get_weights()
 
         vector, logits = model(t=self.t, 
                                x=self.xt, 
@@ -97,7 +105,9 @@ class ConditionalMarkovBridge :
             targets = self.k1.reshape(-1).long() 
             targets = targets.to(logits.device)
             self.mask = self.mask.reshape(-1)
-            loss_ce = self.discrete_weight.to(logits.device) * self.loss_discrete_fn(logits, targets)
+            lambda_t = self.loss_weight(device=logits.device)
+
+            loss_ce = lambda_t * self.loss_discrete_fn(logits, targets)
             loss_ce = loss_ce * self.mask
             loss += loss_ce.sum() / self.mask.sum()
 
