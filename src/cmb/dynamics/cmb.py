@@ -29,9 +29,9 @@ class ConditionalMarkovBridge :
             
         solver = solvers.get(config.pipeline.method)
         self.solver = solver(config=config, 
-                             dynamics_continuous=self.process_continuous if hasattr(self, 'process_continuous') else None,
-                             dynamics_discrete=self.process_discrete if hasattr(self, 'process_discrete') else None)
-
+                             dynamics_continuous=getattr(self, 'process_continuous', None),
+                             dynamics_discrete=getattr(self, 'process_discrete', None)
+                            )
         #...logging:
         print('INFO: Conditional Markov Bridge initialized...')
         print('      - continuous process: ', config.dynamics.continuous.process if hasattr(self, 'process_continuous') else None)
@@ -47,13 +47,18 @@ class ConditionalMarkovBridge :
     def sample_coupling(self, batch):
         """ sample boundary data z = (x_0, x1) ~ pi(x_0, x_1)
         """		
-        self.x0 = batch.source_continuous if hasattr(batch, 'source_continuous') else None
-        self.x1 = batch.target_continuous if hasattr(batch, 'target_continuous') else None
-        self.k0 = batch.source_discrete if hasattr(batch, 'source_discrete') else None
-        self.k1 = batch.target_discrete  if hasattr(batch, 'target_discrete') else None
-        self.context_continuous = batch.target_context_continuous if hasattr(batch, 'target_context_continuous') else None
-        self.context_discrete = batch.target_context_discrete if hasattr(batch, 'target_context_discrete') else None
-        self.mask = batch.target_mask if hasattr(batch, 'target_mask') else torch.ones_like(self.x0[..., 0]).unsqueeze(-1)
+        #...continuous coupling:
+        self.x0 = getattr(batch, 'source_continuous', None)
+        self.x1 = getattr(batch, 'target_continuous', None)
+
+        #...discrete coupling:
+        self.k0 = getattr(batch, 'source_discrete', None)
+        self.k1 = getattr(batch, 'target_discrete', None)
+
+        #...mask and context:
+        self.mask = getattr(batch, 'target_mask', torch.ones_like(self.x0[..., 0]).unsqueeze(-1))
+        self.context_continuous = getattr(batch, 'target_context_continuous', None)
+        self.context_discrete = getattr(batch, 'target_context_discrete', None)
 
     def sample_bridges(self):
         ''' sample paths and jumps from bridges
@@ -122,15 +127,17 @@ class BatchOTCMB(ConditionalMarkovBridge):
         OT = OTPlanSampler()	
         self.x0 = batch.source_continuous
         self.x1 = batch.target_continuous
-        self.k0 = batch.source_discrete
-        self.k1 = batch.target_discrete
+        self.k0 = getattr(batch, 'source_discrete', None)
+        self.k1 = getattr(batch, 'target_discrete', None)
+        self.context_continuous = getattr(batch, 'target_context_continuous', None)
+        self.context_discrete = getattr(batch, 'target_context_discrete', None)
+        self.mask = getattr(batch, 'target_mask', torch.ones_like(self.x0[..., 0]).unsqueeze(-1))
+
+        #...OT pairing
         pi = OT.get_map(self.x0, self.x1)
         idx_0, idx_1 = OT.sample_map(pi, self.x0.shape[0], replace=False)
         self.x0, self.x1 = self.x0[idx_0], self.x1[idx_1]
         self.k0, self.k1 = self.k0[idx_0], self.k1[idx_1]
-        self.context_continuous = batch.target_context_continuous if hasattr(batch, 'target_context_continuous') else None
-        self.context_discrete = batch.target_context_discrete if hasattr(batch, 'target_context_discrete') else None
-        self.mask = batch.target_mask if hasattr(batch, 'target_mask') else torch.ones_like(self.x0[..., 0]).unsqueeze(-1)
 
 
 class BatchEntropicOTCMB(ConditionalMarkovBridge):
@@ -139,13 +146,15 @@ class BatchEntropicOTCMB(ConditionalMarkovBridge):
         EOT = OTPlanSampler(reg=regulator)	
         self.x0 = batch.source_continuous
         self.x1 = batch.target_continuous
-        self.k0 = batch.source_discrete
-        self.k1 = batch.target_discrete
+        self.k0 = getattr(batch, 'source_discrete', None)
+        self.k1 = getattr(batch, 'target_discrete', None)
+        self.context_continuous = getattr(batch, 'target_context_continuous', None)
+        self.context_discrete = getattr(batch, 'target_context_discrete', None)
+        self.mask = getattr(batch, 'target_mask', torch.ones_like(self.x0[..., 0]).unsqueeze(-1))
+
+        #...OT pairing
         pi = EOT.get_map(self.x0, self.x1)
         idx_0, idx_1 = EOT.sample_map(pi, self.x0.shape[0], replace=False)
         self.x0, self.x1 = self.x0[idx_0], self.x1[idx_1]
         self.k0, self.k1 = self.k0[idx_0], self.k1[idx_1]
-        self.context_continuous = batch.target_context_continuous if hasattr(batch, 'target_context_continuous') else None
-        self.context_discrete = batch.target_context_discrete if hasattr(batch, 'target_context_discrete') else None
-        self.mask = batch.target_mask if hasattr(batch, 'target_mask') else torch.ones_like(self.x0[..., 0]).unsqueeze(-1)
 

@@ -11,7 +11,7 @@ def extract_features(dataset, min_num=0, max_num=128, num_jets=None):
         for data in dataset:
             assert  '.root' in data, 'Input should be a path to a .root file or a tensor'
             data = read_root_file(data)
-            features = ['part_ptrel', 'part_etarel', 'part_phirel', 'part_isPhoton', 'part_isNeutralHadron', 'part_isChargedHadron', 'part_isElectron', 'part_isMuon', 'part_charge', 'part_isGhost']       
+            features = ['part_pt', 'part_etarel', 'part_phirel', 'part_isPhoton', 'part_isNeutralHadron', 'part_isChargedHadron', 'part_isElectron', 'part_isMuon', 'part_charge', 'part_isGhost']       
             data = torch.tensor(np.stack([ak.to_numpy(pad(data[feat], min_num=min_num, max_num=max_num)) for feat in features] , axis=1))
             data = torch.permute(data, (0,2,1))   
             continuous = data[...,0:3] 

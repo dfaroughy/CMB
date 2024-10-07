@@ -1,27 +1,29 @@
 #...General experiment parameters
 experiment:
-  workdir: /home/df630/CMB/results
+  workdir: /home/df630/CMB/results/runs
 
 #...Data parameters
 
 data:
   dataset: JetClass
-  standardize: true
   target:
-    name: tops
+    name: tbqq
+    standardize: true
     train:
       num_jets: null
       path:
         - /home/df630/CMB/data/JetClass/TTBar_000.root
+        - /home/df630/CMB/data/JetClass/TTBar_001.root
+        - /home/df630/CMB/data/JetClass/TTBar_002.root
     test:
       num_jets: null
       path:
-        - /home/df630/CMB/data/JetClass/TTBar_002.root
-
+        - /home/df630/CMB/data/JetClass/TTBar_003.root
   source: 
     name: gauss
-    concentration: [.1, 10.0]
-    gauss_std: 0.25
+    standardize: true
+    gauss_std: 1.0
+    concentration: null  # beta concentration parameter for beta-gauss
     init_state_config: uniform
     train:
       num_jets: null
@@ -83,9 +85,12 @@ model:
 dynamics: 
   name: ConditionalMarkovBridge
   loss_weight: 0.1
+  loss_weight_fn: null
+
   continuous:
     process: FlowMatching
     sigma: 0.0001
+
   discrete:
     process: TelegraphProcess
     gamma: 0.125
@@ -100,11 +105,11 @@ pipeline:
 #...Training parameters
 
 train:
-  device: cuda:1
+  device: cuda:2
   multi_gpu: false
-  batch_size: 1048
+  batch_size: 1024
   data_split_frac: [0.9, 0.1, 0.0]  # train / val / test
-  epochs: 100
+  epochs: 500
   early_stopping: null
   min_epochs: null
   print_epochs: 10
@@ -124,8 +129,8 @@ train:
   scheduler: 
     name: CosineAnnealingLR
     params: 
-      T_max: 100
-      eta_min: 0.0
+      T_max: 500
+      eta_min: 0.00001
       last_epoch: -1
 
 

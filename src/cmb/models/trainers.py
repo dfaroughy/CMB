@@ -28,14 +28,14 @@ class GenerativeDynamicsModule:
         if isinstance(config, str): 
             config = Configs(config)                                              # get configs form yaml
             if device is not None: config.train.device = device                   # override config device if provided
-
-        self.dataclass = dataclass
+        
         self.config = config 
+        self.dataclass = dataclass
         self.dynamics = dynamics.get(self.config.dynamics.name)(self.config)           # get generative dynamical model from config
         self.model = models.get(self.config.model.name)(self.config)                   # get NN from configs
         self.model = self.model.to(torch.device(self.config.train.device))
         self.workdir = Path(self.config.experiment.workdir) / Path(self.config.data.dataset) / Path(self.config.experiment.name)
-
+        
     def train(self):
         #...train config:
         train = Train_Step()
@@ -46,6 +46,23 @@ class GenerativeDynamicsModule:
         min_epochs = 0 if self.config.train.min_epochs is None else self.config.train.min_epochs
         print_epochs = 1 if self.config.train.print_epochs is None else self.config.train.print_epochs
 
+        #...multi-gpu:
+        if self.config.train.multi_gpu and torch.cuda.device_count() > 1:
+            print("INFO: using ", torch.cuda.device_count(), "GPUs...")
+            self.model = DataParallel(self.model)
+
+        #...preprocess data:
+        if self.config.data.source.standardize:
+            print('INFO: Standardizing source data...')
+            stats_source = self.dataclass.source.summary_stats()
+            self.dataclass.source.preprocess(stats_source)
+            self.config.data.source.train.stats = stats_source
+        if self.config.data.target.standardize:
+            print('INFO: Standardizing target data.')
+            stats_target = self.dataclass.target.summary_stats()
+            self.dataclass.target.preprocess(stats_target)
+            self.config.data.target.train.stats = stats_target
+        
         #...logging:
         os.makedirs(self.workdir, exist_ok=True)
         self.config.save(self.workdir / 'config.yaml')
@@ -56,25 +73,17 @@ class GenerativeDynamicsModule:
         self.logger.logfile.info(f"INFO: model architecture:\n{self.model}")
         self.logger.logfile_and_console("INFO: start training...")
 
-        #...multi-gpu:
-        # TODO fix multi-gpu training
-
-        if self.config.train.multi_gpu and torch.cuda.device_count() > 1:
-            print("INFO: using ", torch.cuda.device_count(), "GPUs...")
-            self.model = DataParallel(self.model)
-
+        #...dataloader:
         dataloader = DataloaderModule(self.config, self.dataclass)
-        
+
         #...train loop:
         for epoch in tqdm(range(self.config.train.epochs), desc="epochs"):
-
             train.update(model=self.model, 
                          loss_fn=self.dynamics.loss, 
                          dataloader=dataloader.train, 
                          optimizer=optimizer, 
                          scheduler=scheduler,
                          gradient_clip=self.config.train.optimizer.gradient_clip) 
-            
             valid.update(model=self.model, 
                          loss_fn=self.dynamics.loss, 
                          dataloader=dataloader.valid)
@@ -115,7 +124,7 @@ class GenerativeDynamicsModule:
     @torch.no_grad()
     def generate(self, output_history=False, **kwargs):
         print('INFO: generating samples...') 
-
+    
         if hasattr(self, 'best_epoch_ckpt'):  model = self.best_epoch_ckpt 
         elif hasattr(self, 'last_epoch_ckpt'):  model = self.last_epoch_ckpt
         else:  model = self.checkpoint
@@ -143,6 +152,8 @@ class GenerativeDynamicsModule:
         
         mask = kwargs.get('mask', None)
         self.sample = sample if mask is None else torch.cat([sample, mask], dim=-1)
+
+
 
     def _save_best_epoch_ckpt(self, improved):
         if improved:
