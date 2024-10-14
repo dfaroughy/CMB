@@ -34,7 +34,7 @@ class GenerativeDynamicsModule:
         self.dynamics = dynamics.get(self.config.dynamics.name)(self.config)           # get generative dynamical model from config
         self.model = models.get(self.config.model.name)(self.config)                   # get NN from configs
         self.model = self.model.to(torch.device(self.config.train.device))
-        self.workdir = Path(self.config.experiment.workdir) / Path(self.config.data.dataset) / Path(self.config.experiment.name)
+        self.workdir = Path(self.config.experiment.workdir) / Path(self.config.experiment.run_name) / Path(self.config.experiment.name)
         
     def train(self):
         #...train config:
@@ -52,16 +52,19 @@ class GenerativeDynamicsModule:
             self.model = DataParallel(self.model)
 
         #...preprocess data:
-        if self.config.data.source.standardize:
-            print('INFO: Standardizing source data...')
-            stats_source = self.dataclass.source.summary_stats()
-            self.dataclass.source.preprocess(stats_source)
-            self.config.data.source.train.stats = stats_source
-        if self.config.data.target.standardize:
-            print('INFO: Standardizing target data.')
-            stats_target = self.dataclass.target.summary_stats()
-            self.dataclass.target.preprocess(stats_target)
-            self.config.data.target.train.stats = stats_target
+        if hasattr(self.config.data, 'preprocess'):
+            print('INFO: Preprocessing data...')
+            print('    - continuous data: {}'.format(self.config.data.preprocess.continuous))
+            print('    - discrete data: {}'.format(self.config.data.preprocess.discrete))
+
+            self.dataclass.source.preprocess(output_continuous=self.config.data.preprocess.continuous, 
+                                             output_discrete=self.config.data.preprocess.discrete)
+            
+            self.dataclass.target.preprocess(output_continuous=self.config.data.preprocess.continuous, 
+                                             output_discrete=self.config.data.preprocess.discrete)
+
+            self.config.data.source.train.stats = self.dataclass.source.stats
+            self.config.data.target.train.stats = self.dataclass.target.stats
         
         #...logging:
         os.makedirs(self.workdir, exist_ok=True)
@@ -121,16 +124,17 @@ class GenerativeDynamicsModule:
             self.checkpoint = type(self.model)(self.config)
             self.checkpoint.load_state_dict(torch.load(self.workdir/f'{checkpoint}.ckpt', map_location=(torch.device('cpu') if self.config.train.device=='cpu' else None)))
 
+
+
     @torch.no_grad()
-    def generate(self, output_history=False, **kwargs):
+    def generate(self, dataclass=None, output_history=False, **kwargs):
+
         print('INFO: generating samples...') 
-    
         if hasattr(self, 'best_epoch_ckpt'):  model = self.best_epoch_ckpt 
         elif hasattr(self, 'last_epoch_ckpt'):  model = self.last_epoch_ckpt
         else:  model = self.checkpoint
 
         time_steps = torch.linspace(0.0, 1.0 - self.config.pipeline.time_eps, self.config.pipeline.num_timesteps)
-
         out_continuous, out_discrete = self.dynamics.solver.simulate(model, 
                                                                      time_steps=time_steps, 
                                                                      output_history=output_history,  
@@ -153,7 +157,11 @@ class GenerativeDynamicsModule:
         mask = kwargs.get('mask', None)
         self.sample = sample if mask is None else torch.cat([sample, mask], dim=-1)
 
-
+        if dataclass is not None:
+            self.sample = dataclass(self.sample)
+            self.sample.postprocess(input_continuous=self.config.data.preprocess.continuous, 
+                                    input_discrete=self.config.data.preprocess.discrete,
+                                    stats=self.config.data.target.train.stats)
 
     def _save_best_epoch_ckpt(self, improved):
         if improved:

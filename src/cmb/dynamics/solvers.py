@@ -182,7 +182,8 @@ class EulerLeapingSolver:
         mask = mask.to(self.device) if mask is not None else None
 
         delta_t = (time_steps[-1] - time_steps[0]) / (len(time_steps) - 1)
-        trajectories, jumps = ([x.clone()], [k.clone()]) if output_history else x.clone(), k.clone()
+        trajectories = [x.clone()] if output_history else x.clone()
+        jumps = [k.clone()] if output_history else k.clone()
 
         for time in time_steps[1:]:
 
@@ -221,7 +222,6 @@ class EulerLeapingSolver:
                 jumps.append(k.clone())
             else:
                 trajectories, jumps = x.clone(), k.clone()
-
 
         if output_history:
             trajectories = torch.stack(trajectories)

@@ -166,27 +166,25 @@ class InputEmbeddings(nn.Module):
         #...Feature embeddings:
 
         if dim_features_continuous_emb:
-            if embed_type_features_continuous == 'KANLinear':  self.embedding_continuous = KANLinear(dim_features_continuous, dim_features_continuous_emb)
-            elif embed_type_features_continuous == 'Linear':  self.embedding_continuous = nn.Linear(dim_features_continuous, dim_features_continuous_emb) 
+            if embed_type_features_continuous == 'Linear':  self.embedding_continuous = nn.Linear(dim_features_continuous, dim_features_continuous_emb) 
             elif embed_type_features_continuous is None:  self.embedding_continuous = nn.Identity() 
             else: NotImplementedError('Continuous features embedding not implemented, choose from `kolmogorov-arnold`, `linear` or None') 
 
         if dim_features_discrete:
-            if embed_type_features_discrete == 'Linear': self.embedding_discrete = nn.Embedding(vocab_size, dim_features_discrete_emb)
-            elif embed_type_features_discrete == 'KANLinear': self.embedding_discrete = nn.Embedding(vocab_size, dim_features_discrete_emb)       
+            if embed_type_features_discrete == 'Embedding': self.embedding_discrete = nn.Embedding(vocab_size, dim_features_discrete_emb)
+            elif embed_type_features_discrete == 'Linear':  self.embedding_discrete = nn.Linear(dim_features_discrete, dim_features_continuous_emb) 
             else: NotImplementedError('Discrete context embedding not implemented, use `Linear` or KANLinear')
 
         #...Context embeddings:
             
         if dim_context_continuous:
-            if embed_type_context_continuous == 'KANLinear': self.embedding_context_continuous = KANLinear(dim_context_continuous, dim_context_continuous_emb)
-            elif embed_type_context_continuous == 'Linear':  self.embedding_context_continuous = nn.Linear(dim_context_continuous, dim_context_continuous_emb)
+            if embed_type_context_continuous == 'Embedding':  self.embedding_context_continuous = nn.Linear(dim_context_continuous, dim_context_continuous_emb)
             elif embed_type_context_continuous is None:  self.embedding_context_continuous = nn.Identity()
             else: NotImplementedError('Continuous context embedding not implemented, use `embedding` or None')
 
         if dim_context_discrete:
-            if embed_type_context_discrete == 'Linear': self.embedding_context_discrete = nn.Embedding(vocab_size_context, dim_context_discrete_emb)
-            elif embed_type_context_discrete == 'KANLinear': self.embedding_context_discrete = nn.Embedding(vocab_size_context, dim_context_discrete_emb)        
+            if embed_type_context_discrete == 'Embedding': self.embedding_context_discrete = nn.Embedding(vocab_size_context, dim_context_discrete_emb)
+            elif embed_type_context_discrete == 'Linear': self.embedding_context_discrete = nn.Linear(dim_context_discrete, dim_features_continuous_emb) 
             else: NotImplementedError('Discrete context embedding not implemented, use `Linear` or KANLinear')
 
     def forward(self, t, x, k, context_continuous=None, context_discrete=None, mask=None):
