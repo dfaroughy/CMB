@@ -159,9 +159,11 @@ class GenerativeDynamicsModule:
 
         if dataclass is not None:
             self.sample = dataclass(self.sample)
+            self.sample.stats = self.config.data.target.train.stats 
+            if not isinstance(self.sample.stats, dict):
+                self.sample.stats = self.sample.stats.to_dict()
             self.sample.postprocess(input_continuous=self.config.data.preprocess.continuous, 
-                                    input_discrete=self.config.data.preprocess.discrete,
-                                    stats=self.config.data.target.train.stats)
+                                    input_discrete=self.config.data.preprocess.discrete)
 
     def _save_best_epoch_ckpt(self, improved):
         if improved:

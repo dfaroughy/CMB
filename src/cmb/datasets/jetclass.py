@@ -124,7 +124,8 @@ class ParticleClouds:
         if input_continuous == 'standardize':                 
             if input_discrete == 'onehot_dequantize':
                 self.continuous = torch.cat([self.continuous, self.discrete], dim=-1)
-            stats = self.stats if stats is None else stats.to_dict()
+                
+            stats = getattr(self, 'stats', stats)
             self.continuous = (self.continuous * torch.tensor(stats['std'])) + torch.tensor(stats['mean'])
             self.continuous *= self.mask
             self.pt = self.continuous[...,0] 
