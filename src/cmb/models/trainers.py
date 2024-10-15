@@ -127,7 +127,7 @@ class GenerativeDynamicsModule:
 
 
     @torch.no_grad()
-    def generate(self, dataclass=None, output_history=False, **kwargs):
+    def generate(self, dataclass=None, output_history=False, max_rate_last_step=False, **kwargs):
 
         print('INFO: generating samples...') 
         if hasattr(self, 'best_epoch_ckpt'):  model = self.best_epoch_ckpt 
@@ -138,6 +138,7 @@ class GenerativeDynamicsModule:
         out_continuous, out_discrete = self.dynamics.solver.simulate(model, 
                                                                      time_steps=time_steps, 
                                                                      output_history=output_history,  
+                                                                     max_rate_last_step=max_rate_last_step,
                                                                      **kwargs)
         if out_continuous is not None and out_discrete is None: 
             sample = out_continuous[-1] if output_history else out_continuous
