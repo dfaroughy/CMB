@@ -43,7 +43,7 @@ class EPiC(nn.Module):
                                 dim_hidden_local=config.model.dim.hidden.local,
                                 dim_hidden_global=config.model.dim.hidden.glob,
                                 use_skip_connection=config.model.skip_connection)
-                                                
+        
     def forward(self, t, x, k=None, context_continuous=None, context_discrete=None, mask=None):
 
         t = t.to(self.device) 
@@ -59,6 +59,26 @@ class EPiC(nn.Module):
         return h, None
 
 
+# class HybridEPiC(nn.Module):
+#     ''' Permutation equivariant architecture for hybrid continuous-discrete models
+#     '''
+#     def __init__(self, config):
+#         super().__init__()
+#         self.dim_features_continuous = config.data.dim.features.continuous
+#         self.dim_features_discrete = config.data.dim.features.discrete
+#         self.vocab_size = config.data.vocab.size.features
+#         self.epic = EPiC(config)
+#         # self.fc_layer = nn.Sequential(nn.Linear(self.dim_features_discrete * self.vocab_size, self.dim_features_discrete * self.vocab_size),
+#         #                               nn.SELU(),
+#         #                               nn.Linear(self.dim_features_discrete * self.vocab_size, self.dim_features_discrete * self.vocab_size))
+        
+#     def forward(self, t, x, k, context_continuous=None, context_discrete=None, mask=None):
+#         h, _ = self.epic(t, x, k, context_continuous, context_discrete, mask)
+#         continuous_head = h[..., :self.dim_features_continuous] 
+#         logits = h[..., self.dim_features_continuous:]
+#         return continuous_head, logits
+
+
 class HybridEPiC(nn.Module):
     ''' Permutation equivariant architecture for hybrid continuous-discrete models
     '''
@@ -67,14 +87,82 @@ class HybridEPiC(nn.Module):
         self.dim_features_continuous = config.data.dim.features.continuous
         self.dim_features_discrete = config.data.dim.features.discrete
         self.vocab_size = config.data.vocab.size.features
-        
         self.epic = EPiC(config)
-
+        self.fc_layer = nn.Sequential(nn.Linear(self.dim_features_discrete * self.vocab_size, self.dim_features_discrete * self.vocab_size),
+                                      nn.SELU(),
+                                      nn.Linear(self.dim_features_discrete * self.vocab_size, self.dim_features_discrete * self.vocab_size))
+        
     def forward(self, t, x, k, context_continuous=None, context_discrete=None, mask=None):
         h, _ = self.epic(t, x, k, context_continuous, context_discrete, mask)
         continuous_head = h[..., :self.dim_features_continuous] 
-        logits = h[..., self.dim_features_continuous:]
+        discrete_head = h[..., self.dim_features_continuous:]
+        logits = self.fc_layer(discrete_head)
         return continuous_head, logits
+
+# class HybridEPiC(nn.Module):
+#     ''' Model wrapper for EPiC Network
+
+#         Forward pass:
+#             - t: time input of shape (b, 1)
+#             - x: continuous features of shape (b, n, dim_continuous)
+#             - k: discrete features of shape (b,  n, dim_discrete)
+#             - context: context features of shape (b, dim_context)
+#             - mask: binary mask of shape (b, n, 1) indicating valid particles (1) or masked particles (0)
+#         '''
+
+#     def __init__(self, config):
+#         super().__init__()
+
+#         self.device = config.train.device
+
+#         #...data dimensions:
+#         self.dim_features_continuous = config.data.dim.features.continuous  
+#         self.dim_features_discrete = config.data.dim.features.discrete
+#         dim_context_continuous = config.data.dim.context.continuous 
+#         self.vocab_size = config.data.vocab.size.features
+#         self.dim_half_hidden = config.model.dim.hidden.local // 2
+
+#         #...embedding dimensions:
+#         dim_time_emb = config.model.dim.embed.time
+#         dim_features_continuous_emb = config.model.dim.embed.features.continuous if config.model.dim.embed.features.continuous else self.dim_features_continuous
+#         dim_features_discrete_emb = config.model.dim.embed.features.discrete 
+#         dim_context_continuous_emb = config.model.dim.embed.context.continuous if config.model.dim.embed.context.continuous else dim_context_continuous
+#         dim_context_discrete_emb = config.model.dim.embed.context.discrete
+#         #...components:
+#         self.embedding = InputEmbeddings(config)
+
+#         self.epic = EPiCNetwork(dim_input=dim_time_emb + dim_features_continuous_emb + dim_features_discrete_emb,
+#                                 dim_output=config.model.dim.hidden.local,
+#                                 dim_context=dim_time_emb + dim_context_continuous_emb + dim_context_discrete_emb,
+#                                 num_blocks=config.model.num_blocks,
+#                                 dim_hidden_local=config.model.dim.hidden.local,
+#                                 dim_hidden_global=config.model.dim.hidden.glob,
+#                                 use_skip_connection=config.model.skip_connection)
+        
+#         self.continuous_head = nn.Sequential(nn.Linear(self.dim_half_hidden, self.dim_half_hidden),
+#                                              nn.SELU(),
+#                                              nn.Linear(self.dim_half_hidden, self.dim_features_continuous))
+                                                          
+#         self.discrete_head = nn.Sequential(nn.Linear(self.dim_half_hidden, self.dim_half_hidden),
+#                                            nn.SELU(),
+#                                            nn.Linear(self.dim_half_hidden, self.dim_features_discrete * self.vocab_size))
+
+#     def forward(self, t, x, k=None, context_continuous=None, context_discrete=None, mask=None):
+
+#         t = t.to(self.device) 
+#         x = x.to(self.device) 
+#         k = k.to(self.device) if isinstance(k, torch.Tensor) else None
+
+#         context_continuous = context_continuous.to(self.device) if isinstance(context_continuous, torch.Tensor) else None 
+#         context_discrete = context_discrete.to(self.device) if isinstance(context_discrete, torch.Tensor) else None 
+#         mask = mask.to(self.device)
+
+#         x_local_emb, context_emb = self.embedding(t, x, k, context_continuous, context_discrete, mask)
+#         h = self.epic(x_local_emb, context_emb, mask)
+#         f = h[..., :self.dim_half_hidden] + h[..., self.dim_half_hidden:]
+#         continuous_head = self.continuous_head(f)
+#         discrete_head = self.discrete_head(f)
+#         return continuous_head, discrete_head
 
 
 class EPiCNetwork(nn.Module):
@@ -179,11 +267,13 @@ class EPiC_layer(nn.Module):
                  dim_global, 
                  dim_hidden, 
                  dim_context,
-                 pooling_fn):
+                 pooling_fn,
+                 activation_fn=F.leaky_relu):
         
         super(EPiC_layer, self).__init__()
         
         self.pooling_fn = pooling_fn
+        self.activation_fn = activation_fn
         self.fc_global1 = weight_norm(nn.Linear(int(2*dim_local) + dim_global + dim_context, dim_hidden)) 
         self.fc_global2 = weight_norm(nn.Linear(dim_hidden, dim_global)) 
         self.fc_local1 = weight_norm(nn.Linear(dim_local + dim_global + dim_context, dim_hidden))
@@ -197,12 +287,12 @@ class EPiC_layer(nn.Module):
         '''
         num_points, dim_global, dim_context = x_local.size(1), x_global.size(1), context.size(1)
         x_pooledCATglobal = self.pooling_fn(mask, x_local, x_global, context)
-        x_global1 = F.leaky_relu(self.fc_global1(x_pooledCATglobal))   
-        x_global = F.leaky_relu(self.fc_global2(x_global1) + x_global) # with residual connection before AF
+        x_global1 = self.activation_fn(self.fc_global1(x_pooledCATglobal))   
+        x_global = self.activation_fn(self.fc_global2(x_global1) + x_global) # with residual connection before AF
         x_global2local = x_global.view(-1, 1, dim_global).repeat(1, num_points, 1) # first add dimension, than expand it
         x_context2local = context.view(-1, 1, dim_context).repeat(1, num_points, 1)  
         x_localCATglobal = torch.cat([x_local, x_global2local, x_context2local], 2)
-        x_local1 = F.leaky_relu(self.fc_local1(x_localCATglobal))  
-        x_local = F.leaky_relu(self.fc_local2(x_local1) + x_local)
+        x_local1 = self.activation_fn(self.fc_local1(x_localCATglobal))  
+        x_local = self.activation_fn(self.fc_local2(x_local1) + x_local)
 
         return x_local * mask, x_global

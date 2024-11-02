@@ -87,6 +87,7 @@ def sample_noise(noise='GaussNoise', num_jets=100_000, **args):
 
     max_num_particles = args.get('max_num_particles', 128)
     scale = args.get('scale', 1.0)
+    cat_probs = args.get('cat_probs', [0.2, 0.2, 0.2, 0.2, 0.2])
 
     if noise=='BetaNoise':
         concentration = args.get('concentration', [.1, 10])
@@ -100,7 +101,7 @@ def sample_noise(noise='GaussNoise', num_jets=100_000, **args):
 
     idx = torch.argsort(continuous[...,0], dim=1, descending=True)
     continuous = torch.gather(continuous, 1, idx.unsqueeze(-1).expand(-1, -1, continuous.size(2)))
-    flavor = np.random.choice([0,1,2,3,4], size=(num_jets, max_num_particles))
+    flavor = np.random.choice([0,1,2,3,4], size=(num_jets, max_num_particles), p=cat_probs)
     charge = np.random.choice([-1,1], size=(num_jets, max_num_particles))
     charge[flavor==0] = charge[flavor==1] = 0
     flavor = F.one_hot(torch.tensor(flavor), num_classes=5)

@@ -52,6 +52,8 @@ class ParticleClouds:
     
         if isinstance(dataset, torch.Tensor):
             self.continuous, self.discrete, self.mask  = dataset[..., :3], dataset[..., 3:-1].long(), dataset[..., -1].unsqueeze(-1).long()
+            if not self.discrete.nelement():
+                del self.discrete
 
         elif 'JetClass' in dataset:
             assert data_paths is not None, 'Specify the path to the JetClass dataset'
@@ -72,9 +74,12 @@ class ParticleClouds:
         self.pt = self.continuous[...,0] 
         self.eta_rel = self.continuous[...,1]
         self.phi_rel = self.continuous[...,2]
-        self.flavor = self.discrete[..., :-1]
-        self.charge = self.discrete[..., -1]
         self.multiplicity = torch.sum(self.mask, dim=1)
+
+        if hasattr(self,'discrete'):
+            self.flavor = self.discrete[..., :-1]
+            self.charge = self.discrete[..., -1]
+
 
     def __len__(self):
         return self.continuous.shape[0]
@@ -226,9 +231,10 @@ class JetClassHighLevelFeatures:
         self.phi = torch.atan2(self.py, self.px)
 
         # discrete jet features
-        self.Q_total = self.jet_charge(kappa=0.0)
-        self.Q_jet = self.jet_charge(kappa=1.0)
         self.multiplicity = torch.sum(self.constituents.mask, dim=1)
+        if hasattr(self.constituents, 'discrete'):
+            self.Q_total = self.jet_charge(kappa=0.0)
+            self.Q_jet = self.jet_charge(kappa=1.0)
 
         #...subsstructure
         self.R = 0.8

@@ -1,13 +1,14 @@
 import torch
 import torch.nn as nn
 from dataclasses import dataclass
+from tqdm.auto import tqdm
 
 class EulerSolver:
     ''' Euler ODE solver for continuous states
     '''
     def __init__(self, config, dynamics_discrete=None, dynamics_continuous=None):
         self.device = config.train.device
-        self.batch_size = 10 * config.train.batch_size
+        self.batch_size = config.train.batch_size
 
     def simulate(self, 
                  model,
@@ -32,7 +33,7 @@ class EulerSolver:
         num_samples = source_continuous.size(0)
         num_batches = (num_samples + self.batch_size - 1) // self.batch_size
 
-        for batch_idx in range(num_batches):
+        for batch_idx in tqdm(range(num_batches), desc="batches"):
             start_idx = batch_idx * self.batch_size
             end_idx = min((batch_idx + 1) * self.batch_size, num_samples)
 
@@ -189,7 +190,7 @@ class EulerLeapingSolver:
         self.dim_discrete = config.data.dim.features.discrete
         self.vocab_size = config.data.vocab.size.features 
         self.rate = dynamics_discrete.rate
-        self.batch_size = 10 * config.train.batch_size
+        self.batch_size = config.train.batch_size
 
     def simulate(self, 
                  model,
@@ -218,7 +219,7 @@ class EulerLeapingSolver:
         num_samples = source_continuous.size(0)
         num_batches = (num_samples + self.batch_size - 1) // self.batch_size
 
-        for batch_idx in range(num_batches):
+        for batch_idx in tqdm(range(num_batches), desc="batches"):
             start_idx = batch_idx * self.batch_size
             end_idx = min((batch_idx + 1) * self.batch_size, num_samples)
 
