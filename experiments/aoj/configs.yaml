@@ -1,0 +1,155 @@
+#...General experiment parameters
+experiment:
+  run_name: aoj_generation_CMB_final
+  workdir: /home/df630/CMB/results/runs
+
+#...Data parameters
+
+data:
+  target:
+    name: AspenOpenJets
+    params:
+      min_num_particles: 0
+      max_num_particles: 150
+    train:
+      path:
+        - /home/df630/CMB/data/AOJ/2016H_job0.h5
+        - /home/df630/CMB/data/AOJ/2016H_job1.h5
+        - /home/df630/CMB/data/AOJ/2016H_job2.h5
+        - /home/df630/CMB/data/AOJ/2016H_job3.h5
+        - /home/df630/CMB/data/AOJ/2016H_job4.h5
+        - /home/df630/CMB/data/AOJ/2016H_job5.h5
+        - /home/df630/CMB/data/AOJ/2016H_job6.h5
+        - /home/df630/CMB/data/AOJ/2016H_job7.h5
+        - /home/df630/CMB/data/AOJ/2016H_job8.h5
+        - /home/df630/CMB/data/AOJ/2016H_job9.h5
+        - /home/df630/CMB/data/AOJ/2016H_job10.h5
+        - /home/df630/CMB/data/AOJ/2016H_job11.h5
+        - /home/df630/CMB/data/AOJ/2016H_job12.h5
+        - /home/df630/CMB/data/AOJ/2016H_job13.h5
+
+    test:
+      path:
+        - /home/df630/CMB/data/AOJ/2016H_job14.h5
+        - /home/df630/CMB/data/AOJ/2016H_job15.h5
+        - /home/df630/CMB/data/AOJ/2016H_job16.h5
+        - /home/df630/CMB/data/AOJ/2016H_job17.h5
+        - /home/df630/CMB/data/AOJ/2016H_job18.h5
+        - /home/df630/CMB/data/AOJ/2016H_job19.h5
+        - /home/df630/CMB/data/AOJ/2016H_job20.h5
+
+  source: 
+    name: GaussNoise
+    params:
+      scale: 1.0
+      min_num_particles: 0
+      max_num_particles: 150
+    train:
+      path: null
+    test:
+      path: null
+      
+  dim:
+    features:
+      continuous: 3             # pt_rel, eta_rel, phi_phi
+      discrete: 1               # num of transition rates
+    context:
+      continuous: 0
+      discrete: 0      
+  
+  vocab:
+    size: 
+      features: 8 
+      context: 0  
+
+  preprocess:
+    continuous: standardize
+    discrete: states
+    
+#...Model parameters
+
+model: 
+  name: HybridEPiC
+  num_blocks: 16
+
+  dim:
+    embed:
+      time: 16
+      features:
+        continuous: 128
+        discrete: 64
+      context:
+        continuous: 0
+        discrete: 0
+    hidden: 
+      local: 256
+      glob: 16
+
+  embed_type:
+    time: SinusoidalPositionalEncoding
+    features: 
+      continuous: Linear
+      discrete: Embedding
+    context:
+      continuous: null
+      discrete: null
+
+  skip_connection: true
+  dropout: 0.15
+  activation: SELU
+  no_discrete_head: false
+
+#...Dynamics parameters
+
+dynamics: 
+  name: ConditionalMarkovBridge
+  loss_weight: 1.0
+  loss_weight_fn: null
+
+  continuous:
+    process: FlowMatching
+    sigma: 0.0001
+
+  discrete:
+    process: TelegraphProcess
+    gamma: 0.05
+
+#...Pipeline generation parameters
+
+pipeline:
+  method: EulerLeapingSolver
+  num_timesteps: 500
+  time_eps: 0.001
+
+#...Training parameters
+
+train:
+  device: cuda:0
+  multi_gpu: false
+  batch_size: 1024
+  data_split_frac: [0.9, 0.1, 0.0]  # train / val / test
+  epochs: 500
+  early_stopping: null
+  min_epochs: null
+  print_epochs: 10
+  num_workers: 0
+  pin_memory: false
+
+  optimizer:
+    name: AdamW
+    params:
+      lr: 0.001
+      weight_decay: 5.0e-5
+      betas: [0.9, 0.999]
+      eps: 1.e-8
+      amsgrad: false
+    gradient_clip: 1.0
+
+  scheduler: 
+    name: CosineAnnealingLR
+    params: 
+      T_max: 500
+      eta_min: 5.0e-5
+      last_epoch: -1
+
+

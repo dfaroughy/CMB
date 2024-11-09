@@ -155,16 +155,17 @@ class ParticleClouds:
 
     #...data visualization methods
 
-    def histplot(self, feature='pt',  idx=None, xlim=None, ylim=None, xlabel=None, ylabel=None, figsize=(3,3), ax=None, **kwargs):
+    def histplot(self, feature='pt',  idx=None, xlim=None, ylim=None, xlabel=None, ylabel=None, figsize=(3,3), fontsize=12, ax=None, **kwargs):
         mask = self.mask.squeeze(-1) > 0
         if ax is None: _, ax = plt.subplots(figsize=figsize)   
         x = getattr(self, feature)[mask] if idx is None else getattr(self, feature)[:,idx]
         sns.histplot(x=x, element="step", ax=ax, **kwargs) 
-        ax.set_xlabel(feature if xlabel is None else xlabel)
+        ax.set_xlabel(feature if xlabel is None else xlabel, fontsize=fontsize)
+        ax.set_ylabel(ylabel, fontsize=fontsize)
         ax.set_xlim(xlim)
         ax.set_ylim(ylim)
 
-    def display_cloud(self, idx, scale_marker=1.0, ax=None, figsize=(3,3), facecolor='whitesmoke', color='darkblue', title_box_anchor=(1.025,1.125)):
+    def display_cloud(self, idx, scale_marker=1.0, ax=None, figsize=(3,3), facecolor='whitesmoke', color='darkblue', title_box_anchor=(1.025,1.125), savefig=None):
         eta = self.eta_rel[idx]
         phi = self.phi_rel[idx]
         pt = self.pt[idx] * scale_marker 
@@ -203,7 +204,7 @@ class ParticleClouds:
                 loc="upper right", 
                 markerscale=2, 
                 scatterpoints=1, 
-                fontsize=7,  
+                fontsize=8,  
                 frameon=False,
                 ncol=8,
                 bbox_to_anchor=title_box_anchor,
@@ -212,7 +213,8 @@ class ParticleClouds:
         ax.set_xticks([])
         ax.set_yticks([])
         ax.set_facecolor(facecolor)  # Set the same color for the axis background
-
+        if savefig is not None:
+            plt.savefig(savefig)
 
 class JetClassHighLevelFeatures:
     def __init__(self, constituents: ParticleClouds):
@@ -242,14 +244,14 @@ class JetClassHighLevelFeatures:
         self.use_wta_scheme = False
         self.substructure()
 
-    def histplot(self, features='pt', xlim=None, ylim=None, xlabel=None, ylabel=None, figsize=(3,3), ax=None, **kwargs):
+    def histplot(self, features='pt', xlim=None, ylim=None, xlabel=None, ylabel=None, figsize=(3,3), fontsize=12, ax=None, **kwargs):
         x = getattr(self, features)
         if isinstance(x, torch.Tensor): x.cpu().numpy()
         if ax is None: 
             _, ax = plt.subplots(figsize=figsize)   
         sns.histplot(x=x, element="step", ax=ax, **kwargs) 
-        ax.set_xlabel(features if xlabel is None else xlabel)
-        ax.set_ylabel(ylabel)
+        ax.set_xlabel(features if xlabel is None else xlabel, fontsize=fontsize)
+        ax.set_ylabel(ylabel, fontsize=fontsize)
         ax.set_xlim(xlim)
         ax.set_ylim(ylim)
 
@@ -259,7 +261,7 @@ class JetClassHighLevelFeatures:
         Qjet = self.constituents.charge.squeeze(-1) * (self.constituents.pt)**kappa
         return Qjet.sum(axis=1) / (self.pt**kappa) 
     
-    def histplot_multiplicities(self, state=None, xlim=None, ylim=None, xlabel=None, ylabel=None, figsize=(3,3), ax=None, **kwargs):
+    def histplot_multiplicities(self, state=None, xlim=None, ylim=None, xlabel=None, ylabel=None, figsize=(3,3), fontsize=12, ax=None, **kwargs):
         if state is not None:
             if isinstance(state, int):
                 state = [state]
@@ -273,17 +275,17 @@ class JetClassHighLevelFeatures:
         if ax is None: 
             _, ax = plt.subplots(figsize=figsize)   
         sns.histplot(x=multiplicity.squeeze(-1), element="step", ax=ax, discrete=True, **kwargs) 
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel(ylabel)
+        ax.set_xlabel(xlabel, fontsize=fontsize)
+        ax.set_ylabel(ylabel, fontsize=fontsize)
         ax.set_xlim(xlim)
         ax.set_ylim(ylim)
 
-    def flavor_fractions(self, figsize=(3,3), ax=None, **kwargs):
+    def flavor_fractions(self, figsize=(3,3), fontsize=12, ax=None, **kwargs):
         if ax is None: 
             _, ax = plt.subplots(figsize=figsize)                                          
         sns.histplot(self.constituents.discrete[self.constituents.mask].squeeze(), binrange=(-0.1, 7.1), element="step", ax=ax, discrete=True, **kwargs)
-        ax.legend(loc='upper right', fontsize=7)
-        ax.set_xlabel('Particle flavor')
+        ax.legend(loc='upper right', fontsize=8)
+        ax.set_xlabel('Particle flavor', fontsize=fontsize)
         ax.set_xticks(np.arange(8))
         ax.set_xticklabels([r'$\gamma$', r'$h^0$', r'$h^-$', r'$h^+$', r'$e^-$', r'$e^+$', r'$\mu^-$', r'$\mu^+$'])
 
@@ -304,7 +306,7 @@ class JetClassHighLevelFeatures:
             jetdef = fastjet.JetDefinition(fastjet.kt_algorithm, self.R)
         print("Clustering jets with fastjet")
         print("Jet definition:", jetdef)
-        self.cluster = fastjet.ClusterSequence(constituents_ak, jetdef)
+        self.cluster = fastjet.ClusterSequence(self.constituents_ak, jetdef)
         self.inclusive_jets = self.cluster.inclusive_jets()
         self.exclusive_jets_1 = self.cluster.exclusive_jets(n_jets=1)
         self.exclusive_jets_2 = self.cluster.exclusive_jets(n_jets=2)

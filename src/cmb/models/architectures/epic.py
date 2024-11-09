@@ -68,10 +68,7 @@ class EPiC(nn.Module):
 #         self.dim_features_discrete = config.data.dim.features.discrete
 #         self.vocab_size = config.data.vocab.size.features
 #         self.epic = EPiC(config)
-#         # self.fc_layer = nn.Sequential(nn.Linear(self.dim_features_discrete * self.vocab_size, self.dim_features_discrete * self.vocab_size),
-#         #                               nn.SELU(),
-#         #                               nn.Linear(self.dim_features_discrete * self.vocab_size, self.dim_features_discrete * self.vocab_size))
-        
+
 #     def forward(self, t, x, k, context_continuous=None, context_discrete=None, mask=None):
 #         h, _ = self.epic(t, x, k, context_continuous, context_discrete, mask)
 #         continuous_head = h[..., :self.dim_features_continuous] 
@@ -88,16 +85,20 @@ class HybridEPiC(nn.Module):
         self.dim_features_discrete = config.data.dim.features.discrete
         self.vocab_size = config.data.vocab.size.features
         self.epic = EPiC(config)
-        self.fc_layer = nn.Sequential(nn.Linear(self.dim_features_discrete * self.vocab_size, self.dim_features_discrete * self.vocab_size),
-                                      nn.SELU(),
-                                      nn.Linear(self.dim_features_discrete * self.vocab_size, self.dim_features_discrete * self.vocab_size))
-        
+        self.no_discrete_head = config.model.no_discrete_head
+        if not self.no_discrete_head:
+            self.fc_layer = nn.Sequential(nn.Linear(self.dim_features_discrete * self.vocab_size, self.dim_features_discrete * self.vocab_size),
+                                          nn.SELU(),
+                                          nn.Linear(self.dim_features_discrete * self.vocab_size, self.dim_features_discrete * self.vocab_size))
+            
     def forward(self, t, x, k, context_continuous=None, context_discrete=None, mask=None):
         h, _ = self.epic(t, x, k, context_continuous, context_discrete, mask)
         continuous_head = h[..., :self.dim_features_continuous] 
         discrete_head = h[..., self.dim_features_continuous:]
-        logits = self.fc_layer(discrete_head)
-        return continuous_head, logits
+        if self.no_discrete_head:
+            return continuous_head, discrete_head
+        else:
+            return continuous_head, self.fc_layer(discrete_head)
 
 # class HybridEPiC(nn.Module):
 #     ''' Model wrapper for EPiC Network

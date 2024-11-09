@@ -127,7 +127,7 @@ class GenerativeDynamicsModule:
 
 
     @torch.no_grad()
-    def generate(self, dataclass=None, output_history=False, **kwargs):
+    def generate(self, dataclass=None, output_history=False, save_to=None, **kwargs):
 
         print('INFO: generating samples...') 
         if hasattr(self, 'best_epoch_ckpt'):  model = self.best_epoch_ckpt 
@@ -156,6 +156,10 @@ class GenerativeDynamicsModule:
         
         mask = kwargs.get('mask', None)
         self.sample = sample if mask is None else torch.cat([sample, mask], dim=-1)
+
+        # save sample to file, where sample is a torch tensor:
+        if save_to is not None:
+            torch.save(self.sample, self.workdir / f"{save_to}")   
 
         if dataclass is not None:
             self.sample = dataclass(self.sample)

@@ -5,6 +5,8 @@ import torch
 import awkward as ak
 import vector
 import uproot
+import h5py 
+from sklearn.preprocessing import OneHotEncoder
 from torch.distributions.categorical import Categorical
 from torch.distributions.beta import Beta
 from torch.nn import functional as F
@@ -16,22 +18,63 @@ def read_root_file(filepath):
     """Loads a single .root file from the JetClass dataset.
     """
     x = uproot.open(filepath)['tree'].arrays()
-    x['part_pt'] = np.hypot(x['part_px'], x['part_py'])
-    x['part_pt_log'] = np.log(x['part_pt'])
-    x['part_ptrel'] = x['part_pt'] / x['jet_pt']
-    x['part_deltaR'] = np.hypot(x['part_deta'], x['part_dphi'])
-
-    p4 = vector.zip({'px': x['part_px'],
-                        'py': x['part_py'],
-                        'pz': x['part_pz'],
-                        'energy': x['part_energy']})
-
-    x['part_eta'] = p4.eta
-    x['part_phi'] = p4.phi
-    x['part_etarel'] = p4.eta - x['jet_eta'] 
-    x['part_phirel'] = (p4.phi - x['jet_phi'] + np.pi) % (2 * np.pi) - np.pi
+    mom = ak.zip({"px": x.part_px, "py": x.part_py, "pz": x.part_pz, "energy": x.part_energy}, with_name="Momentum4D")
+    mom_jet = ak.sum(mom, axis=1)
+    x["part_pt"] = mom.pt
+    x["part_eta"] = mom.eta
+    x["part_phi"] = mom.phi
+    x["part_etarel"] = mom.deltaeta(mom_jet)
+    x["part_phirel"] = mom.deltaphi(mom_jet)
     x['mask'] = np.ones_like(x['part_energy']) 
     return x
+
+def read_aoj_file(filepath):
+    """Loads a single .h5 file from the AOJ dataset.
+    """      
+    def np_to_ak(x: np.ndarray, names: list, mask: np.ndarray = None, dtype="float32"):
+        if mask is None:
+            mask = np.ones_like(x[..., 0], dtype="bool")
+        return ak.Array({name: ak.values_astype(ak.drop_none(ak.mask(ak.Array(x[..., i]), mask != 0)), dtype, ) for i, name in enumerate(names) } )
+
+    with h5py.File(filepath, "r") as f:
+        PFCands = f["PFCands"][:]
+        mask_bad_pids = np.abs(PFCands[:, :, -2]) < 11 # remove weird "quark" pid's
+        PFCands[mask_bad_pids] = np.zeros_like(PFCands[mask_bad_pids])
+        feature_to_encode = np.abs(PFCands[:,:,-2]) 
+        feature_to_encode[feature_to_encode == 11] = 0
+        feature_to_encode[feature_to_encode == 13] = 1
+        feature_to_encode[feature_to_encode == 22] = 2 
+        feature_to_encode[feature_to_encode == 130] = 3
+        feature_to_encode[feature_to_encode == 211] = 4
+        encoder = OneHotEncoder(sparse=False)
+        one_hot_encoded = encoder.fit_transform(feature_to_encode.flatten().reshape(-1, 1))
+        one_hot_encoded = one_hot_encoded.reshape(PFCands.shape[0], PFCands.shape[1], -1)
+        PFCands = np.concatenate((PFCands[:, :, :-2], one_hot_encoded, PFCands[:, :, -1:]), axis=-1)
+        x = np_to_ak(x=PFCands, names=["part_px", 
+                                        "part_py", 
+                                        "part_pz", 
+                                        "part_energy", 
+                                        "part_d0", 
+                                        "part_d0Err", 
+                                        "part_dz",
+                                        "part_dzErr",
+                                        "part_charge",
+                                        "part_isElectron",
+                                        "part_isMuon",
+                                        "part_isPhoton",
+                                        "part_isNeutralHadron",
+                                        "part_isChargedHadron",
+                                        "part_PUPPI"], mask=PFCands[:, :, 3] > 0)
+        mom = ak.zip({"px": x.part_px, "py": x.part_py, "pz": x.part_pz, "energy": x.part_energy}, with_name="Momentum4D")
+        mom_jet = ak.sum(mom, axis=1)
+        x["part_pt"] = mom.pt
+        x["part_eta"] = mom.eta
+        x["part_phi"] = mom.phi
+        x["part_etarel"] = mom.deltaeta(mom_jet)
+        x["part_phirel"] = mom.deltaphi(mom_jet)
+        x['mask'] = PFCands[:, :, 3] > 0
+    return x            
+
 
 def pad(a, min_num, max_num, value=0, dtype='float32'):
     assert max_num >= min_num, 'max_num must be >= min_num'
@@ -62,7 +105,7 @@ def extract_jetclass_features(dataset, **args):
 
 def extract_aoj_features(dataset, **args):
 
-    max_num_particles = args.get('max_num_particles', 128)
+    max_num_particles = args.get('max_num_particles', 150)
     min_num_particles = args.get('min_num_particles', 0)
 
     if isinstance(dataset, str):
@@ -70,18 +113,15 @@ def extract_aoj_features(dataset, **args):
     all_data = []
     for data in dataset:
         assert  '.h5' in data, 'Input should be a path to a .h5 file'
-
-    #     data = read_root_file(data)
-    #     features = ['part_pt', 'part_etarel', 'part_phirel', 'part_isPhoton', 'part_isNeutralHadron', 'part_isChargedHadron', 'part_isElectron', 'part_isMuon', 'part_charge', 'mask']       
-    #     data = torch.tensor(np.stack([ak.to_numpy(pad(data[feat], min_num=min_num, max_num=max_num)) for feat in features] , axis=1))
-    #     data = torch.permute(data, (0,2,1))   
-    #     all_data.append(data)   
-    # data = torch.cat(all_data, dim=0)   
-    # idx = torch.argsort(data[...,0], dim=1, descending=True)
-    # data_pt_sorted = torch.gather(data, 1, idx.unsqueeze(-1).expand(-1, -1, data.size(2)))   
-    # return data_pt_sorted[..., :3], data_pt_sorted[..., 3:-1], data_pt_sorted[..., -1].unsqueeze(-1).long()
-
-
+        d = read_aoj_file(data)
+        features = ['part_pt', 'part_etarel', 'part_phirel', 'part_isPhoton', 'part_isNeutralHadron', 'part_isChargedHadron', 'part_isElectron', 'part_isMuon', 'part_charge', 'mask']     
+        data = torch.tensor(np.stack([ak.to_numpy(pad(d[feat], min_num=min_num_particles, max_num=max_num_particles)) for feat in features] , axis=1))
+        data = torch.permute(data, (0,2,1))   
+        all_data.append(data)   
+    data = torch.cat(all_data, dim=0) 
+    idx = torch.argsort(data[...,0], dim=1, descending=True)
+    data_pt_sorted = torch.gather(data, 1, idx.unsqueeze(-1).expand(-1, -1, data.size(2)))   
+    return data_pt_sorted[..., :3], data_pt_sorted[..., 3:-1], data_pt_sorted[..., -1].unsqueeze(-1).long()
 
 def sample_noise(noise='GaussNoise', num_jets=100_000, **args):
 
