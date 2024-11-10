@@ -46,7 +46,7 @@ def read_aoj_file(filepath):
         feature_to_encode[feature_to_encode == 22] = 2 
         feature_to_encode[feature_to_encode == 130] = 3
         feature_to_encode[feature_to_encode == 211] = 4
-        encoder = OneHotEncoder(sparse=False)
+        encoder = OneHotEncoder(sparse_output=False)
         one_hot_encoded = encoder.fit_transform(feature_to_encode.flatten().reshape(-1, 1))
         one_hot_encoded = one_hot_encoded.reshape(PFCands.shape[0], PFCands.shape[1], -1)
         PFCands = np.concatenate((PFCands[:, :, :-2], one_hot_encoded, PFCands[:, :, -1:]), axis=-1)
