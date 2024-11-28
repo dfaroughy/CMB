@@ -72,7 +72,7 @@ def read_aoj_file(filepath):
         x["part_phi"] = mom.phi
         x["part_etarel"] = mom.deltaeta(mom_jet)
         x["part_phirel"] = mom.deltaphi(mom_jet)
-        x['mask'] = PFCands[:, :, 3] > 0
+        x['mask'] = PFCands[:, :, 3] > 0            
     return x            
 
 
@@ -114,7 +114,16 @@ def extract_aoj_features(dataset, **args):
     for data in dataset:
         assert  '.h5' in data, 'Input should be a path to a .h5 file'
         d = read_aoj_file(data)
-        features = ['part_pt', 'part_etarel', 'part_phirel', 'part_isPhoton', 'part_isNeutralHadron', 'part_isChargedHadron', 'part_isElectron', 'part_isMuon', 'part_charge', 'mask']     
+        features = ['part_pt', 
+                    'part_etarel', 
+                    'part_phirel', 
+                    'part_isPhoton', 
+                    'part_isNeutralHadron',
+                    'part_isChargedHadron', 
+                    'part_isElectron', 
+                    'part_isMuon',
+                    'part_charge', 
+                    'mask']     
         data = torch.tensor(np.stack([ak.to_numpy(pad(d[feat], min_num=min_num_particles, max_num=max_num_particles)) for feat in features] , axis=1))
         data = torch.permute(data, (0,2,1))   
         all_data.append(data)   

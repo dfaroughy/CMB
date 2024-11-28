@@ -1,53 +1,52 @@
 #...General experiment parameters
 experiment:
+  run_name: aoj_generation_CMB_final
   workdir: /home/df630/CMB/results/runs
 
 #...Data parameters
 
 data:
-  dataset: JetClass
   target:
-    name: tbqq
-    standardize: true
+    name: AspenOpenJets
+    params:
+      min_num_particles: 0
+      max_num_particles: 128
     train:
-      num_jets: null
       path:
-        - /home/df630/CMB/data/JetClass/TTBar_000.root
-        - /home/df630/CMB/data/JetClass/TTBar_001.root
-        - /home/df630/CMB/data/JetClass/TTBar_002.root
+        - /home/df630/CMB/data/AOJ/2016H_job0.h5
     test:
-      num_jets: null
       path:
-        - /home/df630/CMB/data/JetClass/TTBar_003.root
+        - /home/df630/CMB/data/AOJ/2016H_job1.h5
+
   source: 
-    name: gauss
-    standardize: true
-    gauss_std: 1.0
-    concentration: null  # beta concentration parameter for beta-gauss
-    init_state_config: uniform
+    name: GaussNoise
+    params:
+      scale: 1.0
+      # cat_probs: [0.4135, 0.1093, 0.4647, 0.0076, 0.0049]
+      min_num_particles: 0
+      max_num_particles: 128
     train:
-      num_jets: null
       path: null
     test:
-      num_jets: 2000
       path: null
-
-  min_num_particles: 0
-  max_num_particles: 128
-
+      
   dim:
     features:
-      continuous: 3    # pt_rel, eta_rel, phi_phi
-      discrete: 1      # flavor/charge
+      continuous: 3             # pt_rel, eta_rel, phi_phi
+      discrete: 1               # num of transition rates
     context:
       continuous: 0
       discrete: 0      
   
   vocab:
     size: 
-      features: 8  # mask, gamma, h0, h-, h+, e-, e+, mu-, mu+ 
-      context: 0   # t->bqq, t->bql, ...
+      features: 8 
+      context: 0  
 
+  preprocess:
+    continuous: standardize
+    discrete: states
+    
 #...Model parameters
 
 model: 
@@ -71,7 +70,7 @@ model:
     time: SinusoidalPositionalEncoding
     features: 
       continuous: Linear
-      discrete: Linear
+      discrete: Embedding
     context:
       continuous: null
       discrete: null
@@ -79,12 +78,13 @@ model:
   skip_connection: true
   dropout: 0.1
   activation: SELU
+  no_discrete_head: false
 
 #...Dynamics parameters
 
 dynamics: 
   name: ConditionalMarkovBridge
-  loss_weight: 0.1
+  loss_weight: 1.0
   loss_weight_fn: null
 
   continuous:
@@ -99,7 +99,7 @@ dynamics:
 
 pipeline:
   method: EulerLeapingSolver
-  num_timesteps: 1000
+  num_timesteps: 500
   time_eps: 0.001
 
 #...Training parameters
@@ -109,7 +109,7 @@ train:
   multi_gpu: false
   batch_size: 1024
   data_split_frac: [0.9, 0.1, 0.0]  # train / val / test
-  epochs: 500
+  epochs: 50
   early_stopping: null
   min_epochs: null
   print_epochs: 10
@@ -129,8 +129,8 @@ train:
   scheduler: 
     name: CosineAnnealingLR
     params: 
-      T_max: 500
-      eta_min: 0.00001
+      T_max: 50
+      eta_min: 1.0e-6
       last_epoch: -1
 
 

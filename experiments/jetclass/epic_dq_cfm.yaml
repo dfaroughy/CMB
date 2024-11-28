@@ -1,42 +1,24 @@
 #...General experiment parameters
 experiment:
-  run_name: aoj_generation_CMB_final
+  run_name: jetclass_generation_DQCFM_final
   workdir: /home/df630/CMB/results/runs
 
 #...Data parameters
 
 data:
   target:
-    name: AspenOpenJets
+    name: JetClass
+    train:
+      path:
+        - /home/df630/CMB/data/JetClass/TTBar_000.root
+        - /home/df630/CMB/data/JetClass/TTBar_001.root
+        - /home/df630/CMB/data/JetClass/TTBar_002.root
+    test:
+      path:
+        - /home/df630/CMB/data/JetClass/TTBar_003.root
     params:
       min_num_particles: 0
       max_num_particles: 128
-    train:
-      path:
-        - /home/df630/CMB/data/AOJ/2016H_job0.h5
-        - /home/df630/CMB/data/AOJ/2016H_job1.h5
-        - /home/df630/CMB/data/AOJ/2016H_job2.h5
-        - /home/df630/CMB/data/AOJ/2016H_job3.h5
-        - /home/df630/CMB/data/AOJ/2016H_job4.h5
-        - /home/df630/CMB/data/AOJ/2016H_job5.h5
-        - /home/df630/CMB/data/AOJ/2016H_job6.h5
-        # - /home/df630/CMB/data/AOJ/2016H_job7.h5
-        # - /home/df630/CMB/data/AOJ/2016H_job8.h5
-        # - /home/df630/CMB/data/AOJ/2016H_job9.h5
-        # - /home/df630/CMB/data/AOJ/2016H_job10.h5
-        # - /home/df630/CMB/data/AOJ/2016H_job11.h5
-        # - /home/df630/CMB/data/AOJ/2016H_job12.h5
-        # - /home/df630/CMB/data/AOJ/2016H_job13.h5
-
-    test:
-      path:
-        - /home/df630/CMB/data/AOJ/2016H_job14.h5
-        - /home/df630/CMB/data/AOJ/2016H_job15.h5
-        # - /home/df630/CMB/data/AOJ/2016H_job16.h5
-        # - /home/df630/CMB/data/AOJ/2016H_job17.h5
-        # - /home/df630/CMB/data/AOJ/2016H_job18.h5
-        # - /home/df630/CMB/data/AOJ/2016H_job19.h5
-        # - /home/df630/CMB/data/AOJ/2016H_job20.h5
 
   source: 
     name: GaussNoise
@@ -51,8 +33,8 @@ data:
       
   dim:
     features:
-      continuous: 3             # pt_rel, eta_rel, phi_phi
-      discrete: 1               # num of transition rates
+      continuous: 11            # pt, eta_rel, phi_phi, photon, neutral hadorn, charged hadron, electron, muon, charge 
+      discrete: 0               # num of transition rates
     context:
       continuous: 0
       discrete: 0      
@@ -64,12 +46,12 @@ data:
 
   preprocess:
     continuous: standardize
-    discrete: states
+    discrete: onehot_dequantize
     
 #...Model parameters
 
 model: 
-  name: HybridEPiC
+  name: EPiC
   num_blocks: 10
 
   dim:
@@ -77,7 +59,7 @@ model:
       time: 16
       features:
         continuous: 16
-        discrete: 6
+        discrete: 0
       context:
         continuous: 0
         discrete: 0
@@ -89,7 +71,7 @@ model:
     time: SinusoidalPositionalEncoding
     features: 
       continuous: Linear
-      discrete: Embedding
+      discrete: null
     context:
       continuous: null
       discrete: null
@@ -97,34 +79,26 @@ model:
   skip_connection: true
   dropout: 0.1
   activation: SELU
-  no_discrete_head: false
 
 #...Dynamics parameters
 
 dynamics: 
   name: ConditionalMarkovBridge
-  loss_weight: 1.0
-  loss_weight_fn: null
-
   continuous:
     process: FlowMatching
     sigma: 0.0001
 
-  discrete:
-    process: TelegraphProcess
-    gamma: 0.125
-
 #...Pipeline generation parameters
 
 pipeline:
-  method: EulerLeapingSolver
-  num_timesteps: 1000
+  method: EulerSolver
+  num_timesteps: 200
   time_eps: 0.001
 
 #...Training parameters
 
 train:
-  device: cuda:0
+  device: cuda:2
   multi_gpu: false
   batch_size: 1024
   data_split_frac: [0.9, 0.1, 0.0]  # train / val / test
@@ -148,8 +122,8 @@ train:
   scheduler: 
     name: CosineAnnealingLR
     params: 
-      T_max: 20
-      eta_min: 1.0e-4
+      T_max: 1000
+      eta_min: 1.e-5
       last_epoch: -1
 
 
