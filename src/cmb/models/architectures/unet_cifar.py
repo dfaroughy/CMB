@@ -7,14 +7,15 @@ import torch as th
 from abc import abstractmethod
 
 from .utils_cifar import (
-                         avg_pool_nd,
-                         checkpoint,
-                         conv_nd,
-                         linear,
-                         normalization,
-                         timestep_embedding,
-                         zero_module,
-                         )    
+    avg_pool_nd,
+    checkpoint,
+    conv_nd,
+    linear,
+    normalization,
+    timestep_embedding,
+    zero_module,
+)
+
 
 class AttentionPool2d(nn.Module):
     """Adapted from CLIP: https://github.com/openai/CLIP/blob/main/clip/model.py."""
@@ -88,7 +89,9 @@ class Upsample(nn.Module):
     def forward(self, x):
         assert x.shape[1] == self.channels
         if self.dims == 3:
-            x = F.interpolate(x, (x.shape[2], x.shape[3] * 2, x.shape[4] * 2), mode="nearest")
+            x = F.interpolate(
+                x, (x.shape[2], x.shape[3] * 2, x.shape[4] * 2), mode="nearest"
+            )
         else:
             x = F.interpolate(x, scale_factor=2, mode="nearest")
         if self.use_conv:
@@ -113,7 +116,9 @@ class Downsample(nn.Module):
         self.dims = dims
         stride = 2 if dims != 3 else (1, 2, 2)
         if use_conv:
-            self.op = conv_nd(dims, self.channels, self.out_channels, 3, stride=stride, padding=1)
+            self.op = conv_nd(
+                dims, self.channels, self.out_channels, 3, stride=stride, padding=1
+            )
         else:
             assert self.channels == self.out_channels
             self.op = avg_pool_nd(dims, kernel_size=stride, stride=stride)
@@ -188,13 +193,17 @@ class ResBlock(TimestepBlock):
             normalization(self.out_channels),
             nn.SiLU(),
             nn.Dropout(p=dropout),
-            zero_module(conv_nd(dims, self.out_channels, self.out_channels, 3, padding=1)),
+            zero_module(
+                conv_nd(dims, self.out_channels, self.out_channels, 3, padding=1)
+            ),
         )
 
         if self.out_channels == channels:
             self.skip_connection = nn.Identity()
         elif use_conv:
-            self.skip_connection = conv_nd(dims, channels, self.out_channels, 3, padding=1)
+            self.skip_connection = conv_nd(
+                dims, channels, self.out_channels, 3, padding=1
+            )
         else:
             self.skip_connection = conv_nd(dims, channels, self.out_channels, 1)
 
@@ -205,7 +214,9 @@ class ResBlock(TimestepBlock):
         :param emb: an [N x emb_channels] Tensor of timestep embeddings.
         :return: an [N x C x ...] Tensor of outputs.
         """
-        return checkpoint(self._forward, (x, emb), self.parameters(), self.use_checkpoint)
+        return checkpoint(
+            self._forward, (x, emb), self.parameters(), self.use_checkpoint
+        )
 
     def _forward(self, x, emb):
         if self.updown:
@@ -494,7 +505,9 @@ class UNetModel(nn.Module):
                             down=True,
                         )
                         if resblock_updown
-                        else Downsample(ch, conv_resample, dims=dims, out_channels=out_ch)
+                        else Downsample(
+                            ch, conv_resample, dims=dims, out_channels=out_ch
+                        )
                     )
                 )
                 ch = out_ch
@@ -749,7 +762,9 @@ class EncoderUNetModel(nn.Module):
                             down=True,
                         )
                         if resblock_updown
-                        else Downsample(ch, conv_resample, dims=dims, out_channels=out_ch)
+                        else Downsample(
+                            ch, conv_resample, dims=dims, out_channels=out_ch
+                        )
                     )
                 )
                 ch = out_ch
@@ -797,7 +812,9 @@ class EncoderUNetModel(nn.Module):
             self.out = nn.Sequential(
                 normalization(ch),
                 nn.SiLU(),
-                AttentionPool2d((image_size // ds), ch, num_head_channels, out_channels),
+                AttentionPool2d(
+                    (image_size // ds), ch, num_head_channels, out_channels
+                ),
             )
         elif pool == "spatial":
             self.out = nn.Sequential(
@@ -850,27 +867,26 @@ class EncoderUNetModel(nn.Module):
             return self.out(h)
 
 
-
 class UNet32x32(nn.Module):
     def __init__(self, config):
         super().__init__()
 
-        dim=config.INPUT_SHAPE
-        num_res_blocks=config.NUM_RES_BLOCKS
-        num_channels=config.NUM_CHANNELS
-        channel_mult=config.CHANNEL_MULT
-        num_heads=config.NUM_HEADS
-        num_head_channels=config.DIM_HIDDEN
-        attention_resolutions=config.ATTENTION_RESOLUTIONS
-        dropout=config.DROPOUT
-        learn_sigma=False
-        num_classes=config.DIM_CONTEXT
-        use_checkpoint=False
-        num_heads_upsample=-1
-        use_scale_shift_norm=False
-        resblock_updown=False
-        use_fp16=False
-        use_new_attention_order=False
+        dim = config.INPUT_SHAPE
+        num_res_blocks = config.NUM_RES_BLOCKS
+        num_channels = config.NUM_CHANNELS
+        channel_mult = config.CHANNEL_MULT
+        num_heads = config.NUM_HEADS
+        num_head_channels = config.DIM_HIDDEN
+        attention_resolutions = config.ATTENTION_RESOLUTIONS
+        dropout = config.DROPOUT
+        learn_sigma = False
+        num_classes = config.DIM_CONTEXT
+        use_checkpoint = False
+        num_heads_upsample = -1
+        use_scale_shift_norm = False
+        resblock_updown = False
+        use_fp16 = False
+        use_new_attention_order = False
 
         """Dim (tuple): (C, H, W)"""
         image_size = dim[-1]
@@ -896,26 +912,27 @@ class UNet32x32(nn.Module):
         for res in attention_resolutions.split(","):
             attention_ds.append(image_size // int(res))
 
-        self.unet = UNetModel(image_size=image_size,
-                                in_channels=dim[0],
-                                model_channels=num_channels,
-                                out_channels=(dim[0] if not learn_sigma else dim[0] * 2),
-                                num_res_blocks=num_res_blocks,
-                                attention_resolutions=tuple(attention_ds),
-                                dropout=dropout,
-                                channel_mult=channel_mult,
-                                num_classes=num_classes if num_classes > 0 else None,
-                                use_checkpoint=use_checkpoint,
-                                use_fp16=use_fp16,
-                                num_heads=num_heads,
-                                num_head_channels=num_head_channels,
-                                num_heads_upsample=num_heads_upsample,
-                                use_scale_shift_norm=use_scale_shift_norm,
-                                resblock_updown=resblock_updown,
-                                use_new_attention_order=use_new_attention_order)
+        self.unet = UNetModel(
+            image_size=image_size,
+            in_channels=dim[0],
+            model_channels=num_channels,
+            out_channels=(dim[0] if not learn_sigma else dim[0] * 2),
+            num_res_blocks=num_res_blocks,
+            attention_resolutions=tuple(attention_ds),
+            dropout=dropout,
+            channel_mult=channel_mult,
+            num_classes=num_classes if num_classes > 0 else None,
+            use_checkpoint=use_checkpoint,
+            use_fp16=use_fp16,
+            num_heads=num_heads,
+            num_head_channels=num_head_channels,
+            num_heads_upsample=num_heads_upsample,
+            use_scale_shift_norm=use_scale_shift_norm,
+            resblock_updown=resblock_updown,
+            use_new_attention_order=use_new_attention_order,
+        )
         # self.to(self.device)
 
     def forward(self, t, x, context=None, mask=None):
         x = self.unet(t, x, y=context)
         return x
-    

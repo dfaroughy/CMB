@@ -1,6 +1,6 @@
-
 import numpy as np
 from torch.optim.lr_scheduler import _LRScheduler
+
 
 class CosineAnnealingWarmup(_LRScheduler):
     def __init__(self, optimizer, warmup, T_max):
@@ -17,8 +17,12 @@ class CosineAnnealingWarmup(_LRScheduler):
         if epoch <= self.warmup:
             lr_factor *= epoch * 1.0 / self.warmup
         return lr_factor
-    
-class NoScheduler:
-    def __init__(self, optimizer): pass
-    def step(self): pass    
 
+
+class NoScheduler:
+    def __init__(self, optimizer,  T_max):
+        self.T_max = None
+        pass
+
+    def step(self):
+        pass

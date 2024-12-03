@@ -3,87 +3,113 @@ import torch
 import torch.nn.functional as F
 import torch.nn as nn
 
-def get_activation_function(name: str='ReLU'):
+
+def get_activation_function(name: str = "ReLU"):
     if name is not None:
-        activation_functions = {"ReLU": nn.ReLU(),
-                                "LeakyReLU": nn.LeakyReLU(),
-                                "ELU": nn.ELU(),
-                                "SELU": nn.SELU(),
-                                "GLU": nn.GLU(),
-                                "GELU": nn.GELU(),
-                                "CELU": nn.CELU(),
-                                "PReLU": nn.PReLU(),
-                                "Sigmoid": nn.Sigmoid(),
-                                "Tanh": nn.Tanh(),
-                                "Hardswish": nn.Hardswish(),
-                                "Hardtanh": nn.Hardtanh(),
-                                "LogSigmoid": nn.LogSigmoid(),
-                                "Softplus": nn.Softplus(),
-                                "Softsign": nn.Softsign(),
-                                "Softshrink": nn.Softshrink(),
-                                "Softmin": nn.Softmin(),
-                                "Softmax": nn.Softmax()}
+        activation_functions = {
+            "ReLU": nn.ReLU(),
+            "LeakyReLU": nn.LeakyReLU(),
+            "ELU": nn.ELU(),
+            "SELU": nn.SELU(),
+            "GLU": nn.GLU(),
+            "GELU": nn.GELU(),
+            "CELU": nn.CELU(),
+            "PReLU": nn.PReLU(),
+            "Sigmoid": nn.Sigmoid(),
+            "Tanh": nn.Tanh(),
+            "Hardswish": nn.Hardswish(),
+            "Hardtanh": nn.Hardtanh(),
+            "LogSigmoid": nn.LogSigmoid(),
+            "Softplus": nn.Softplus(),
+            "Softsign": nn.Softsign(),
+            "Softshrink": nn.Softshrink(),
+            "Softmin": nn.Softmin(),
+            "Softmax": nn.Softmax(),
+        }
         return activation_functions[name]
-    else: return None
+    else:
+        return None
 
 
-def fc_blocks(dim_input, dim_output, dim_hidden, num_layers, activation, dropout, use_batch_norm=False):
+def fc_blocks(
+    dim_input,
+    dim_output,
+    dim_hidden,
+    num_layers,
+    activation,
+    dropout,
+    use_batch_norm=False,
+):
+    BatchNorm = nn.BatchNorm1d if use_batch_norm else nn.Identity
 
-  BatchNorm = nn.BatchNorm1d if use_batch_norm else nn.Identity
+    layers = [nn.Linear(dim_input, dim_hidden), BatchNorm(dim_hidden), activation]
+    if dropout:
+        layers.append(nn.Dropout(dropout))
 
-  layers = [nn.Linear(dim_input, dim_hidden), BatchNorm(dim_hidden), activation]
-  if dropout: layers.append(nn.Dropout(dropout)) 
+    for _ in range(num_layers - 2):
+        layers.extend(
+            [nn.Linear(dim_hidden, dim_hidden), BatchNorm(dim_hidden), activation]
+        )
+        if dropout:
+            layers.extend([nn.Dropout(dropout)])
 
-  for _ in range(num_layers-2): 
-      layers.extend([nn.Linear(dim_hidden, dim_hidden), BatchNorm(dim_hidden), activation])
-      if dropout: layers.extend([nn.Dropout(dropout)]) 
-
-  layers.append(nn.Linear(dim_hidden, dim_output))
-  return nn.Sequential(*layers)
+    layers.append(nn.Linear(dim_hidden, dim_output))
+    return nn.Sequential(*layers)
 
 
-def kan_blocks(dim_input, dim_output, dim_hidden, num_layers, dropout, use_batch_norm=False):
+def kan_blocks(
+    dim_input, dim_output, dim_hidden, num_layers, dropout, use_batch_norm=False
+):
+    BatchNorm = nn.BatchNorm1d if use_batch_norm else nn.Identity
 
-  BatchNorm = nn.BatchNorm1d if use_batch_norm else nn.Identity
+    layers = [KANLinear(dim_input, dim_hidden), BatchNorm(dim_hidden)]
+    if dropout:
+        layers.append(nn.Dropout(dropout))
 
-  layers = [KANLinear(dim_input, dim_hidden), BatchNorm(dim_hidden)]
-  if dropout: layers.append(nn.Dropout(dropout)) 
+    for _ in range(num_layers - 2):
+        layers.extend([KANLinear(dim_hidden, dim_hidden), BatchNorm(dim_hidden)])
+        if dropout:
+            layers.extend([nn.Dropout(dropout)])
 
-  for _ in range(num_layers-2): 
-      layers.extend([KANLinear(dim_hidden, dim_hidden), BatchNorm(dim_hidden)])
-      if dropout: layers.extend([nn.Dropout(dropout)]) 
-
-  layers.append(nn.Linear(dim_hidden, dim_output))
-  return nn.Sequential(*layers)
-
+    layers.append(nn.Linear(dim_hidden, dim_output))
+    return nn.Sequential(*layers)
 
 
 class MultiHeadAttention(nn.Module):
-    def __init__(self, dim_input, dim_output, dim_hidden=128, num_heads=4, dropout=0.0, attention_embedding='linear'):
+    def __init__(
+        self,
+        dim_input,
+        dim_output,
+        dim_hidden=128,
+        num_heads=4,
+        dropout=0.0,
+        attention_embedding="linear",
+    ):
         super().__init__()
 
-        assert dim_hidden % num_heads == 0, "hidden dimension must be divisible by number of heads"
-        self.dim_head= dim_hidden // num_heads
+        assert (
+            dim_hidden % num_heads == 0
+        ), "hidden dimension must be divisible by number of heads"
+        self.dim_head = dim_hidden // num_heads
         self.num_head = num_heads
         self.dim_hidden = dim_hidden
         self.register_buffer("tril", torch.tril(torch.ones(dim_hidden, dim_hidden)))
 
-        if attention_embedding == 'linear': 
+        if attention_embedding == "linear":
             self.k = nn.Linear(dim_input, dim_hidden, bias=False)
             self.q = nn.Linear(dim_input, dim_hidden, bias=False)
             self.v = nn.Linear(dim_input, dim_hidden, bias=False)
-        elif attention_embedding == 'kolmogorov-arnold': 
+        elif attention_embedding == "kolmogorov-arnold":
             self.k = KANLinear(dim_input, dim_hidden)
             self.q = KANLinear(dim_input, dim_hidden)
             self.v = KANLinear(dim_input, dim_hidden)
-            
+
         self.proj = nn.Linear(dim_hidden, dim_output)
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x, mask=None):
-
         b, n, dim = x.shape
-        K, V, Q  = self.k(x), self.v(x), self.q(x)  # (B, T, E)
+        K, V, Q = self.k(x), self.v(x), self.q(x)  # (B, T, E)
 
         # We implicitly split the matrix by adding a `num_heads` dimension
         # Unroll last dim: (b, n, d) -> (b, n, num_heads, head_dim)
@@ -129,65 +155,114 @@ class MultiHeadAttention(nn.Module):
 
 class InputEmbeddings(nn.Module):
     def __init__(self, config):
-
         super(InputEmbeddings, self).__init__()
 
-        #...dimensions:
-        dim_features_continuous = config.data.dim.features.continuous  
+        # ...dimensions:
+        dim_features_continuous = config.data.dim.features.continuous
         dim_features_discrete = config.data.dim.features.discrete
-        dim_context_continuous = config.data.dim.context.continuous 
-        dim_context_discrete = config.data.dim.context.discrete     
+        dim_context_continuous = config.data.dim.context.continuous
+        dim_context_discrete = config.data.dim.context.discrete
 
-        #...vocab sizes for discrete data:
-        vocab_size = config.data.vocab.size.features         
-        vocab_size_context = config.data.vocab.size.context     
+        # ...vocab sizes for discrete data:
+        vocab_size = config.data.vocab.size.features
+        vocab_size_context = config.data.vocab.size.context
 
-        #...embedding types:
+        # ...embedding types:
         embed_type_time = config.model.embed_type.time
         embed_type_features_continuous = config.model.embed_type.features.continuous
         embed_type_features_discrete = config.model.embed_type.features.discrete
         embed_type_context_continuous = config.model.embed_type.context.continuous
         embed_type_context_discrete = config.model.embed_type.context.discrete
 
-        #...embedding dimensions:
+        # ...embedding dimensions:
         dim_time_emb = config.model.dim.embed.time
-        dim_features_continuous_emb = config.model.dim.embed.features.continuous if config.model.dim.embed.features.continuous else dim_features_continuous
-        dim_features_discrete_emb = config.model.dim.embed.features.discrete 
-        dim_context_continuous_emb = config.model.dim.embed.context.continuous if config.model.dim.embed.context.continuous else dim_context_continuous
+        dim_features_continuous_emb = (
+            config.model.dim.embed.features.continuous
+            if config.model.dim.embed.features.continuous
+            else dim_features_continuous
+        )
+        dim_features_discrete_emb = config.model.dim.embed.features.discrete
+        dim_context_continuous_emb = (
+            config.model.dim.embed.context.continuous
+            if config.model.dim.embed.context.continuous
+            else dim_context_continuous
+        )
         dim_context_discrete_emb = config.model.dim.embed.context.discrete
-        
-        #...Time embeddings:
 
-        if embed_type_time == 'SinusoidalPositionalEncoding':  self.time_embedding = SinusoidalPositionalEncoding(dim_time_emb, max_period=10000)
-        elif embed_type_time == 'KANLinear':  self.time_embedding = KANLinear(1, dim_time_emb)
-        elif embed_type_time == 'Linear': self.time_embedding = nn.Linear(1, dim_time_emb)  
-        else: NotImplementedError('Time embedding not implemented, choose from `SinusoidalPositionalEncoding`, `KANLinear` or `Linear`') 
+        # ...Time embeddings:
 
-        #...Feature embeddings:
+        if embed_type_time == "SinusoidalPositionalEncoding":
+            self.time_embedding = SinusoidalPositionalEncoding(
+                dim_time_emb, max_period=10000
+            )
+        elif embed_type_time == "KANLinear":
+            self.time_embedding = KANLinear(1, dim_time_emb)
+        elif embed_type_time == "Linear":
+            self.time_embedding = nn.Linear(1, dim_time_emb)
+        else:
+            NotImplementedError(
+                "Time embedding not implemented, choose from `SinusoidalPositionalEncoding`, `KANLinear` or `Linear`"
+            )
+
+        # ...Feature embeddings:
 
         if dim_features_continuous_emb:
-            if embed_type_features_continuous == 'Linear':  self.embedding_continuous = nn.Linear(dim_features_continuous, dim_features_continuous_emb) 
-            elif embed_type_features_continuous is None:  self.embedding_continuous = nn.Identity() 
-            else: NotImplementedError('Continuous features embedding not implemented, choose from `kolmogorov-arnold`, `linear` or None') 
+            if embed_type_features_continuous == "Linear":
+                self.embedding_continuous = nn.Linear(
+                    dim_features_continuous, dim_features_continuous_emb
+                )
+            elif embed_type_features_continuous is None:
+                self.embedding_continuous = nn.Identity()
+            else:
+                NotImplementedError(
+                    "Continuous features embedding not implemented, choose from `kolmogorov-arnold`, `linear` or None"
+                )
 
         if dim_features_discrete:
-            if embed_type_features_discrete == 'Embedding': self.embedding_discrete = nn.Embedding(vocab_size, dim_features_discrete_emb)
-            elif embed_type_features_discrete == 'Linear':  self.embedding_discrete = nn.Linear(dim_features_discrete, dim_features_continuous_emb) 
-            else: NotImplementedError('Discrete context embedding not implemented, use `Linear` or KANLinear')
+            if embed_type_features_discrete == "Embedding":
+                self.embedding_discrete = nn.Embedding(
+                    vocab_size, dim_features_discrete_emb
+                )
+            elif embed_type_features_discrete == "Linear":
+                self.embedding_discrete = nn.Linear(
+                    dim_features_discrete, dim_features_continuous_emb
+                )
+            else:
+                NotImplementedError(
+                    "Discrete context embedding not implemented, use `Linear` or KANLinear"
+                )
 
-        #...Context embeddings:
-            
+        # ...Context embeddings:
+
         if dim_context_continuous:
-            if embed_type_context_continuous == 'Embedding':  self.embedding_context_continuous = nn.Linear(dim_context_continuous, dim_context_continuous_emb)
-            elif embed_type_context_continuous is None:  self.embedding_context_continuous = nn.Identity()
-            else: NotImplementedError('Continuous context embedding not implemented, use `embedding` or None')
+            if embed_type_context_continuous == "Embedding":
+                self.embedding_context_continuous = nn.Linear(
+                    dim_context_continuous, dim_context_continuous_emb
+                )
+            elif embed_type_context_continuous is None:
+                self.embedding_context_continuous = nn.Identity()
+            else:
+                NotImplementedError(
+                    "Continuous context embedding not implemented, use `embedding` or None"
+                )
 
         if dim_context_discrete:
-            if embed_type_context_discrete == 'Embedding': self.embedding_context_discrete = nn.Embedding(vocab_size_context, dim_context_discrete_emb)
-            elif embed_type_context_discrete == 'Linear': self.embedding_context_discrete = nn.Linear(dim_context_discrete, dim_features_continuous_emb) 
-            else: NotImplementedError('Discrete context embedding not implemented, use `Linear` or KANLinear')
+            if embed_type_context_discrete == "Embedding":
+                self.embedding_context_discrete = nn.Embedding(
+                    vocab_size_context, dim_context_discrete_emb
+                )
+            elif embed_type_context_discrete == "Linear":
+                self.embedding_context_discrete = nn.Linear(
+                    dim_context_discrete, dim_features_continuous_emb
+                )
+            else:
+                NotImplementedError(
+                    "Discrete context embedding not implemented, use `Linear` or KANLinear"
+                )
 
-    def forward(self, t, x, k, context_continuous=None, context_discrete=None, mask=None):
+    def forward(
+        self, t, x, k, context_continuous=None, context_discrete=None, mask=None
+    ):
         """
         Forward pass of the particle embedding.
 
@@ -204,41 +279,49 @@ class InputEmbeddings(nn.Module):
         - context: Embedded context of shape (batch_size, dim_context)
         """
 
-        #...time:
+        # ...time:
 
-        t_emb = self.time_embedding(t.squeeze(-1))           
-        t_context_emb = t_emb.clone().to(t_emb.device)   
-        if x.ndim == 3: t_emb = t_emb.unsqueeze(1).repeat(1, x.shape[1], 1)   # (b, dim_time_emb) -> (b, n, dim_time_emb)
+        t_emb = self.time_embedding(t.squeeze(-1))
+        t_context_emb = t_emb.clone().to(t_emb.device)
+        if x.ndim == 3:
+            t_emb = t_emb.unsqueeze(1).repeat(
+                1, x.shape[1], 1
+            )  # (b, dim_time_emb) -> (b, n, dim_time_emb)
 
-        features = [t_emb] 
-        context = [t_context_emb] 
+        features = [t_emb]
+        context = [t_context_emb]
 
-        #...features:
+        # ...features:
 
-        if hasattr(self, 'embedding_continuous'):
-            emb = self.embedding_continuous(x) 
+        if hasattr(self, "embedding_continuous"):
+            emb = self.embedding_continuous(x)
             features.append(emb)
 
-        if hasattr(self, 'embedding_discrete'):
+        if hasattr(self, "embedding_discrete"):
             emb = self.embedding_discrete(k.squeeze(-1))
-            if x.ndim == 2: 
+            if x.ndim == 2:
                 emb = emb.squeeze(1)
             features.append(emb)
 
-        #...context:
+        # ...context:
 
-        if hasattr(self, 'embedding_context_continuous'):
+        if hasattr(self, "embedding_context_continuous"):
             emb = self.embedding_context_continuous(context_continuous)
             context.append(emb)
 
-        if hasattr(self, 'embedding_context_discrete'):
+        if hasattr(self, "embedding_context_discrete"):
             emb = self.embedding_context_discrete(context_discrete).squeeze(1)
             context.append(emb)
 
-        features = torch.cat(features, dim=-1)    # (b, n, dim_continuous_emb + dim_discrete_emb + dim_time_emb)
-        context = torch.cat(context, dim=-1)      # (b, dim_context_continuous_emb + dim_context_discrete_emb + dim_time_emb)
+        features = torch.cat(
+            features, dim=-1
+        )  # (b, n, dim_continuous_emb + dim_discrete_emb + dim_time_emb)
+        context = torch.cat(
+            context, dim=-1
+        )  # (b, dim_context_continuous_emb + dim_context_discrete_emb + dim_time_emb)
 
         return features * mask, context
+
 
 class PermutationLayer(nn.Module):
     def __init__(self, *dims):
@@ -246,11 +329,12 @@ class PermutationLayer(nn.Module):
         self.dims = dims
 
     def forward(self, x):
-        return x.permute(*self.dims)    
+        return x.permute(*self.dims)
+
 
 class SinusoidalPositionalEncoding(nn.Module):
-    """ Positional encoding with log-linear spaced frequencies for each dimension        
-    """
+    """Positional encoding with log-linear spaced frequencies for each dimension"""
+
     def __init__(self, dim, max_period=10000):
         super(SinusoidalPositionalEncoding, self).__init__()
         self.dim = dim
@@ -258,11 +342,19 @@ class SinusoidalPositionalEncoding(nn.Module):
 
     def forward(self, timesteps):
         half = self.dim // 2
-        freqs = torch.exp( -math.log(self.max_period) * torch.arange(start=0, end=half, dtype=torch.float32, device=timesteps.device) / half)
+        freqs = torch.exp(
+            -math.log(self.max_period)
+            * torch.arange(
+                start=0, end=half, dtype=torch.float32, device=timesteps.device
+            )
+            / half
+        )
         args = timesteps[:, None].float() * freqs[None]
         embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
         if self.dim % 2:
-            embedding = torch.cat([embedding, torch.zeros_like(embedding[:, :1])], dim=-1)
+            embedding = torch.cat(
+                [embedding, torch.zeros_like(embedding[:, :1])], dim=-1
+            )
         return embedding.squeeze()
 
 
@@ -279,12 +371,14 @@ class GaussianFourierFeatures(nn.Module):
 
     def forward(self, t):
         self.w = self.w.to(t.device)
-        t_proj = 2 * math.pi * t[..., None] * self.w[None, ...] 
+        t_proj = 2 * math.pi * t[..., None] * self.w[None, ...]
         embedding = torch.cat([torch.sin(t_proj), torch.cos(t_proj)], dim=-1)
         if self.dim % 2:
-            embedding = torch.cat([embedding, torch.zeros_like(embedding[..., :1])], dim=-1)
+            embedding = torch.cat(
+                [embedding, torch.zeros_like(embedding[..., :1])], dim=-1
+            )
         return embedding.squeeze()
-    
+
 
 class KANLinear(torch.nn.Module):
     def __init__(
@@ -337,7 +431,9 @@ class KANLinear(torch.nn.Module):
         self.reset_parameters()
 
     def reset_parameters(self):
-        torch.nn.init.kaiming_uniform_(self.base_weight, a=math.sqrt(5) * self.scale_base)
+        torch.nn.init.kaiming_uniform_(
+            self.base_weight, a=math.sqrt(5) * self.scale_base
+        )
         with torch.no_grad():
             noise = (
                 (
@@ -356,7 +452,9 @@ class KANLinear(torch.nn.Module):
             )
             if self.enable_standalone_scale_spline:
                 # torch.nn.init.constant_(self.spline_scaler, self.scale_spline)
-                torch.nn.init.kaiming_uniform_(self.spline_scaler, a=math.sqrt(5) * self.scale_spline)
+                torch.nn.init.kaiming_uniform_(
+                    self.spline_scaler, a=math.sqrt(5) * self.scale_spline
+                )
 
     def b_splines(self, x: torch.Tensor):
         """
@@ -370,9 +468,9 @@ class KANLinear(torch.nn.Module):
         """
         assert x.dim() == 2 and x.size(1) == self.in_features
 
-        grid: torch.Tensor = (
-            self.grid
-        ).to(x.device)  # (in_features, grid_size + 2 * spline_order + 1)
+        grid: torch.Tensor = (self.grid).to(
+            x.device
+        )  # (in_features, grid_size + 2 * spline_order + 1)
         x = x.unsqueeze(-1)
         bases = ((x >= grid[:, :-1]) & (x < grid[:, 1:])).to(x.dtype)
         for k in range(1, self.spline_order + 1):
@@ -448,7 +546,7 @@ class KANLinear(torch.nn.Module):
             self.scaled_spline_weight.view(self.out_features, -1),
         )
         output = base_output + spline_output
-        
+
         output = output.reshape(*original_shape[:-1], self.out_features)
         return output
 
@@ -524,7 +622,6 @@ class KANLinear(torch.nn.Module):
         )
 
 
-
 class KAN(torch.nn.Module):
     def __init__(
         self,
@@ -571,4 +668,3 @@ class KAN(torch.nn.Module):
             layer.regularization_loss(regularize_activation, regularize_entropy)
             for layer in self.layers
         )
-    

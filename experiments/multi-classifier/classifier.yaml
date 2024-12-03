@@ -1,0 +1,96 @@
+#...General experiment parameters
+experiment:
+  type: classifier
+  name: jetclass
+  workdir: /home/df630/CMB/metrics
+
+#...Data parameters
+
+data:
+  params:
+    min_num_particles: 0
+    max_num_particles: 128
+  train:
+    name: Generated
+    path:
+      - /Users/dario/Dropbox/PROJECTS/ML/JetData/JetClass/samples/QCD-8k-set1/gen_sample_QCD-10k-finetune.parquet
+      - /Users/dario/Dropbox/PROJECTS/ML/JetData/JetClass/samples/QCD-8k-set1/gen_sample_QCD-10k-fromscratch.parquet
+  test:
+    name: JetClass
+    path:
+      - /Users/dario/Dropbox/PROJECTS/ML/JetData/JetClass/JetClass_Pythia_train_100M_part0/TTBar_001.root
+      
+  dim:
+    continuous: 3             # pt_rel, eta_rel, phi_phi
+    discrete: 1               # num of transition rates    
+
+  vocab:
+    size: 8
+
+  preprocess:
+    continuous: standardize
+    discrete: states
+    
+#...Model parameters
+
+model: 
+  name: ParticleNet
+  dim:
+    embed:
+      time: 16
+      features:
+        continuous: 16
+        discrete: 16
+      context:
+        continuous: 0
+        discrete: 0
+    hidden: 
+      local: 128
+      glob: 16
+
+  embed_type:
+    time: SinusoidalPositionalEncoding
+    features: 
+      continuous: Linear
+      discrete: Embedding
+    context:
+      continuous: null
+      discrete: null
+
+  skip_connection: true
+  dropout: 0.1
+  activation: SELU
+  no_discrete_head: false
+
+#...Training parameters
+
+train:
+  device: cuda:2
+  multi_gpu: false
+  batch_size: 1024
+  data_split_frac: [0.9, 0.1, 0.0]  # train / val / test
+  epochs: 500
+  early_stopping: null
+  min_epochs: null
+  print_epochs: 10
+  num_workers: 0
+  pin_memory: false
+
+  optimizer:
+    name: AdamW
+    params:
+      lr: 0.001
+      weight_decay: 5.0e-5
+      betas: [0.9, 0.999]
+      eps: 1.e-8
+      amsgrad: false
+    gradient_clip: 1.0
+
+  scheduler: 
+    name: CosineAnnealingLR
+    params: 
+      T_max: 500
+      eta_min: 1.0e-5
+      last_epoch: -1
+
+
